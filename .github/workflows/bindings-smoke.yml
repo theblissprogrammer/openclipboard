@@ -1,0 +1,95 @@
+name: Bindings smoke tests (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_kotlin:
+        description: "Run Kotlin (JVM) compile/smoke"
+        type: boolean
+        default: true
+      run_swift:
+        description: "Run Swift typecheck smoke (macOS)"
+        type: boolean
+        default: true
+
+jobs:
+  kotlin:
+    if: ${{ inputs.run_kotlin }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Generate bindings (Kotlin + Swift)
+        run: ./ffi/scripts/generate_bindings.sh
+
+      - name: Download Kotlin compiler
+        run: |
+          set -euo pipefail
+          KOTLIN_VERSION="2.0.21"
+          curl -fsSL -o kotlin-compiler.zip "https://github.com/JetBrains/kotlin/releases/download/v${KOTLIN_VERSION}/kotlin-compiler-${KOTLIN_VERSION}.zip"
+          unzip -q kotlin-compiler.zip -d kotlin-compiler
+          echo "KOTLIN_HOME=$PWD/kotlin-compiler/kotlinc" >> $GITHUB_ENV
+
+      - name: Download JNA
+        run: |
+          set -euo pipefail
+          JNA_VERSION="5.14.0"
+          curl -fsSL -o jna.jar "https://repo1.maven.org/maven2/net/java/dev/jna/jna/${JNA_VERSION}/jna-${JNA_VERSION}.jar"
+
+      - name: Kotlin compile + runtime smoke
+        run: |
+          set -euo pipefail
+          LIB="$PWD/target/debug/libopenclipboard_ffi.so"
+          test -f "$LIB"
+
+          cat > Smoke.kt <<'KOT'
+          import uniffi.openclipboard.trustStoreDefaultPath
+
+          fun main() {
+            val p = trustStoreDefaultPath()
+            println("trustStoreDefaultPath=$p")
+          }
+          KOT
+
+          KOTLINC="$KOTLIN_HOME/bin/kotlinc"
+          test -x "$KOTLINC"
+
+          CP="jna.jar"
+          "$KOTLINC" \
+            -classpath "$CP" \
+            -d smoke.jar \
+            ffi/bindings/kotlin/uniffi/openclipboard/openclipboard.kt \
+            Smoke.kt
+
+          # Run (loads the Rust .so via absolute-path override)
+          java \
+            -Duniffi.component.openclipboard.libraryOverride="$LIB" \
+            -cp "smoke.jar:$KOTLIN_HOME/lib/kotlin-stdlib.jar:$KOTLIN_HOME/lib/kotlin-stdlib-jdk8.jar:jna.jar" \
+            SmokeKt
+
+  swift:
+    if: ${{ inputs.run_swift }}
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Generate bindings (Kotlin + Swift)
+        run: ./ffi/scripts/generate_bindings.sh
+
+      - name: Swift typecheck smoke
+        run: |
+          set -euo pipefail
+          swiftc -version
+          swiftc -typecheck -I ffi/bindings/swift ffi/bindings/swift/openclipboard.swift

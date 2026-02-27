@@ -12,13 +12,20 @@ cd "$ROOT_DIR"
 
 cargo build -p openclipboard_ffi
 
-# Locate the built shared library (linux .so). If not found, continue without it.
+# Locate the built shared library (platform-specific). If not found, continue without it.
 LIB=""
-if [[ -f "$ROOT_DIR/target/debug/libopenclipboard_ffi.so" ]]; then
-  LIB="$ROOT_DIR/target/debug/libopenclipboard_ffi.so"
-elif [[ -f "$ROOT_DIR/target/release/libopenclipboard_ffi.so" ]]; then
-  LIB="$ROOT_DIR/target/release/libopenclipboard_ffi.so"
-fi
+for candidate in \
+  "$ROOT_DIR/target/debug/libopenclipboard_ffi.so" \
+  "$ROOT_DIR/target/debug/libopenclipboard_ffi.dylib" \
+  "$ROOT_DIR/target/debug/openclipboard_ffi.dll" \
+  "$ROOT_DIR/target/release/libopenclipboard_ffi.so" \
+  "$ROOT_DIR/target/release/libopenclipboard_ffi.dylib" \
+  "$ROOT_DIR/target/release/openclipboard_ffi.dll"; do
+  if [[ -f "$candidate" ]]; then
+    LIB="$candidate"
+    break
+  fi
+done
 
 rm -rf "$ROOT_DIR/ffi/bindings"
 mkdir -p "$OUT_KOTLIN" "$OUT_SWIFT"
