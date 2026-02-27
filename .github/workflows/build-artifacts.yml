@@ -26,7 +26,7 @@ jobs:
     - name: Setup Rust
       uses: dtolnay/rust-toolchain@stable
       with:
-        targets: x86_64-apple-darwin
+        targets: aarch64-apple-darwin
         
     - name: Cache Cargo dependencies
       uses: actions/cache@v4
@@ -39,20 +39,24 @@ jobs:
         
     - name: Build Rust FFI library
       run: |
-        cargo build -p openclipboard_ffi --release --target x86_64-apple-darwin
-        
-    - name: Generate Swift bindings
+        cargo build -p openclipboard_ffi --release
+
+    - name: Generate bindings (Swift + Kotlin) and sync into macOS package
       run: |
-        cd ffi
-        cargo run --bin openclipboard_bindgen --release -- --language swift --out-dir bindings/swift
-        ls -la bindings/swift/
+        export OPENCLIPBOARD_BINDINGS_PROFILE=release
+        ./ffi/scripts/generate_bindings.sh
+        ./macos/sync_bindings.sh
+        ls -la macos/OpenClipboardBindings/
         
     - name: Setup Swift
       uses: swift-actions/setup-swift@v2
       
-    - name: Build macOS app
+    - name: Build + test macOS Swift package
       run: |
         cd macos
+        export OPENCLIPBOARD_FFI_LIB_DIR="../target/release"
+        export DYLD_LIBRARY_PATH="$PWD/../target/release"
+        swift test
         swift build -c release
         
     - name: Create app bundle structure
@@ -64,7 +68,7 @@ jobs:
         cp .build/release/OpenClipboard OpenClipboard.app/Contents/MacOS/
         
         # Copy FFI library
-        cp ../target/x86_64-apple-darwin/release/libopenclipboard_ffi.dylib OpenClipboard.app/Contents/Frameworks/
+        cp ../target/release/libopenclipboard_ffi.dylib OpenClipboard.app/Contents/Frameworks/
         
         # Create minimal Info.plist
         cat > OpenClipboard.app/Contents/Info.plist << 'EOF'
@@ -151,14 +155,10 @@ jobs:
         export NDK_HOME=$ANDROID_NDK_ROOT
         cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -o android/app/src/main/jniLibs build -p openclipboard_ffi --release
         
-    - name: Generate Kotlin bindings
+    - name: Generate Kotlin bindings (for Android build)
       run: |
-        cd ffi
-        cargo run --bin openclipboard_bindgen --release -- --language kotlin --out-dir bindings/kotlin
-        
-        # Copy bindings to Android project (preserve package structure)
-        mkdir -p ../android/app/src/main/kotlin/uniffi/openclipboard
-        cp bindings/kotlin/uniffi/openclipboard/* ../android/app/src/main/kotlin/uniffi/openclipboard/
+        export OPENCLIPBOARD_BINDINGS_PROFILE=debug
+        ./ffi/scripts/generate_bindings.sh
         
     - name: Cache Gradle dependencies
       uses: actions/cache@v4
@@ -171,6 +171,13 @@ jobs:
     - name: Make gradlew executable
       run: chmod +x android/gradlew
       
+    - name: Run Android JVM unit tests
+      run: |
+        # Ensure host Rust cdylib exists for unit tests
+        cargo build -p openclipboard_ffi
+        cd android
+        ./gradlew testDebugUnitTest --no-daemon
+
     - name: Build Android APK
       run: |
         cd android

@@ -19,24 +19,19 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.openclipboard.ui.theme.OpenClipboardTheme
 
 class MainActivity : ComponentActivity() {
-    
-    // TODO: Initialize ClipboardNode from FFI
-    // private lateinit var clipboardNode: ClipboardNode
-    
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
-        // TODO: Initialize FFI
-        // clipboardNode = ClipboardNode(identityPath = "...", trustPath = "...")
-        // clipboardNode.startListener(port = 8080, eventHandler = ...)
-        
+
+        // Wire up UniFFI node (MVP). This uses internal app storage for identity/trust.
+        OpenClipboardAppState.init(applicationContext)
+
         enableEdgeToEdge()
         setContent {
             OpenClipboardTheme {
@@ -44,11 +39,10 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-    
+
     override fun onDestroy() {
         super.onDestroy()
-        // TODO: Stop ClipboardNode
-        // clipboardNode.stop()
+        OpenClipboardAppState.stop()
     }
 }
 
@@ -56,7 +50,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainScreen() {
     val navController = rememberNavController()
-    
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -100,7 +94,14 @@ fun MainScreen() {
 @Composable
 fun HomeScreen() {
     val context = LocalContext.current
-    
+
+    var targetAddr by remember { mutableStateOf("192.168.1.10:18455") }
+
+    val peerId = OpenClipboardAppState.peerId.value
+    val port = OpenClipboardAppState.listeningPort.value
+    val connectedCount = OpenClipboardAppState.connectedPeers.size
+    val activity = OpenClipboardAppState.recentActivity.toList()
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -108,50 +109,46 @@ fun HomeScreen() {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        
-        // Status Card
-        Card(
-            modifier = Modifier.fillMaxWidth()
-        ) {
+
+        Card(modifier = Modifier.fillMaxWidth()) {
             Column(
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text("Status", style = MaterialTheme.typography.headlineSmall)
-                Text("Peer ID: ${getPeerId()}")
-                Text("Listening on: Port 8080")
-                Text("Connected Peers: ${getConnectedPeersCount()}")
+                Text("Peer ID: $peerId")
+                Text("Listening on: Port $port")
+                Text("Connected Peers: $connectedCount")
             }
         }
-        
-        // Send Clipboard Button
+
+        OutlinedTextField(
+            value = targetAddr,
+            onValueChange = { targetAddr = it },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Target (ip:port)") },
+            singleLine = true,
+        )
+
         Button(
-            onClick = { 
-                // TODO: Implement clipboard sending
-                // Get clipboard content
-                // Show peer selection dialog
-                // Call clipboardNode.connectAndSendText()
+            onClick = {
+                OpenClipboardAppState.sendClipboardTextTo(targetAddr.trim(), context)
             },
             modifier = Modifier.fillMaxWidth()
         ) {
             Icon(Icons.Default.Send, contentDescription = null)
             Spacer(Modifier.width(8.dp))
-            Text("Send Clipboard")
+            Text("Send Clipboard Text")
         }
-        
-        // Recent Activity
-        Card(
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp)
-            ) {
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
                 Text("Recent Activity", style = MaterialTheme.typography.headlineSmall)
                 Spacer(Modifier.height(8.dp))
-                
+
                 LazyColumn {
-                    items(getRecentActivity()) { activity ->
-                        ActivityItem(activity)
+                    items(activity) { act ->
+                        ActivityItem(act)
                         Divider()
                     }
                 }
@@ -162,6 +159,9 @@ fun HomeScreen() {
 
 @Composable
 fun PeersScreen() {
+    val context = LocalContext.current
+    var peers by remember { mutableStateOf(OpenClipboardAppState.listTrustedPeers(context)) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -175,17 +175,18 @@ fun PeersScreen() {
             Text("Trusted Peers", style = MaterialTheme.typography.headlineSmall)
             FloatingActionButton(
                 onClick = {
-                    // TODO: Show add peer dialog
+                    // TODO: Add pairing UI + TrustStore add
+                    peers = OpenClipboardAppState.listTrustedPeers(context)
                 }
             ) {
-                Icon(Icons.Default.Add, contentDescription = "Add peer")
+                Icon(Icons.Default.Add, contentDescription = "Refresh")
             }
         }
-        
+
         Spacer(Modifier.height(16.dp))
-        
+
         LazyColumn {
-            items(getTrustedPeers()) { peer ->
+            items(peers) { peer ->
                 PeerItem(peer)
                 Divider()
             }
@@ -195,30 +196,24 @@ fun PeersScreen() {
 
 @Composable
 fun SettingsScreen() {
+    val context = LocalContext.current
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp)
     ) {
         Text("Settings", style = MaterialTheme.typography.headlineMedium)
-        
+
         Spacer(Modifier.height(24.dp))
-        
-        // TODO: Add settings options
-        // - Auto-start on boot
-        // - Notification preferences
-        // - Port configuration
-        // - Trust store management
-        
+
         Card(modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier.padding(16.dp)
-            ) {
-                Text("Network", style = MaterialTheme.typography.titleLarge)
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("Runtime", style = MaterialTheme.typography.titleLarge)
                 Spacer(Modifier.height(8.dp))
-                Text("Port: 8080")
-                Text("Identity Path: /data/data/com.openclipboard/files/identity.json")
-                Text("Trust Store: /data/data/com.openclipboard/files/trust.json")
+                Text("Port: ${OpenClipboardAppState.listeningPort.value}")
+                Text("Identity Path: ${context.filesDir.absolutePath}/identity.json")
+                Text("Trust Store: ${context.filesDir.absolutePath}/trust.json")
             }
         }
     }
@@ -261,36 +256,6 @@ fun PeerItem(peer: TrustedPeerRecord) {
             Text("Remove", color = MaterialTheme.colorScheme.error)
         }
     }
-}
-
-// Mock data and functions - TODO: Replace with actual FFI calls
-
-fun getPeerId(): String {
-    // TODO: return clipboardNode.peerId()
-    return "peer-android-123456"
-}
-
-fun getConnectedPeersCount(): Int {
-    // TODO: return actual connected peers count
-    return 2
-}
-
-fun getRecentActivity(): List<ActivityRecord> {
-    // TODO: return actual activity from event handlers
-    return listOf(
-        ActivityRecord("Received text clipboard", "peer-laptop-abc", "2 min ago"),
-        ActivityRecord("Sent file: document.pdf", "peer-phone-xyz", "5 min ago"),
-        ActivityRecord("Peer connected", "peer-tablet-def", "10 min ago")
-    )
-}
-
-fun getTrustedPeers(): List<TrustedPeerRecord> {
-    // TODO: Load from TrustStore via FFI
-    return listOf(
-        TrustedPeerRecord("Laptop", "peer-laptop-abc123"),
-        TrustedPeerRecord("iPhone", "peer-phone-xyz789"),
-        TrustedPeerRecord("Tablet", "peer-tablet-def456")
-    )
 }
 
 data class ActivityRecord(

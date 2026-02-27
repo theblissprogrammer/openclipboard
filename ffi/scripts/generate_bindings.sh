@@ -7,20 +7,24 @@ OUT_KOTLIN="$ROOT_DIR/ffi/bindings/kotlin"
 OUT_SWIFT="$ROOT_DIR/ffi/bindings/swift"
 
 # Build the cdylib so uniffi can pick the correct cdylib name.
+# Set OPENCLIPBOARD_BINDINGS_PROFILE=release to generate against release builds.
+PROFILE="${OPENCLIPBOARD_BINDINGS_PROFILE:-debug}"
 source "$HOME/.cargo/env"
 cd "$ROOT_DIR"
 
-cargo build -p openclipboard_ffi
+CARGO_FLAGS=()
+if [[ "$PROFILE" == "release" ]]; then
+  CARGO_FLAGS+=(--release)
+fi
+
+cargo build -p openclipboard_ffi "${CARGO_FLAGS[@]}"
 
 # Locate the built shared library (platform-specific). If not found, continue without it.
 LIB=""
 for candidate in \
-  "$ROOT_DIR/target/debug/libopenclipboard_ffi.so" \
-  "$ROOT_DIR/target/debug/libopenclipboard_ffi.dylib" \
-  "$ROOT_DIR/target/debug/openclipboard_ffi.dll" \
-  "$ROOT_DIR/target/release/libopenclipboard_ffi.so" \
-  "$ROOT_DIR/target/release/libopenclipboard_ffi.dylib" \
-  "$ROOT_DIR/target/release/openclipboard_ffi.dll"; do
+  "$ROOT_DIR/target/$PROFILE/libopenclipboard_ffi.so" \
+  "$ROOT_DIR/target/$PROFILE/libopenclipboard_ffi.dylib" \
+  "$ROOT_DIR/target/$PROFILE/openclipboard_ffi.dll"; do
   if [[ -f "$candidate" ]]; then
     LIB="$candidate"
     break

@@ -8,6 +8,12 @@ android {
     namespace = "com.openclipboard"
     compileSdk = 34
 
+    sourceSets {
+        // Include generated UniFFI Kotlin bindings directly from the repo.
+        getByName("main").java.srcDir("../../ffi/bindings/kotlin")
+        getByName("test").java.srcDir("../../ffi/bindings/kotlin")
+    }
+
     defaultConfig {
         applicationId = "com.openclipboard"
         minSdk = 26
@@ -37,6 +43,16 @@ android {
     buildFeatures {
         compose = true
     }
+
+    testOptions {
+        unitTests.all {
+            // UniFFI Kotlin bindings use this property to load the native lib via absolute path.
+            val lib = rootProject.projectDir.resolve("../target/debug/libopenclipboard_ffi.so")
+            if (lib.exists()) {
+                systemProperty("uniffi.component.openclipboard.libraryOverride", lib.absolutePath)
+            }
+        }
+    }
 }
 
 dependencies {
@@ -53,4 +69,6 @@ dependencies {
     
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
+
+    testImplementation(libs.junit)
 }

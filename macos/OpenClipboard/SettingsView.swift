@@ -1,18 +1,24 @@
 import SwiftUI
+import OpenClipboardBindings
 
 struct SettingsView: View {
     @State private var trustedPeers: [TrustedPeer] = []
     @State private var showingAddPeer = false
     @State private var newPeerName = ""
     @State private var newPeerQR = ""
-    
+    @State private var lastError: String? = nil
+
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 16) {
             Text("OpenClipboard Settings")
                 .font(.title)
-                .padding()
-            
-            // Trust Store Section
+
+            if let lastError {
+                Text(lastError)
+                    .foregroundColor(.red)
+                    .font(.caption)
+            }
+
             GroupBox(label: Text("Trusted Peers")) {
                 VStack {
                     if trustedPeers.isEmpty {
@@ -23,7 +29,7 @@ struct SettingsView: View {
                         List(trustedPeers) { peer in
                             HStack {
                                 VStack(alignment: .leading) {
-                                    Text(peer.name)
+                                    Text(peer.displayName)
                                         .font(.headline)
                                     Text(peer.peerId)
                                         .font(.caption)
@@ -37,9 +43,9 @@ struct SettingsView: View {
                             }
                             .padding(4)
                         }
-                        .frame(height: 200)
+                        .frame(height: 220)
                     }
-                    
+
                     HStack {
                         Spacer()
                         Button("Add Peer") {
@@ -48,8 +54,8 @@ struct SettingsView: View {
                     }
                 }
             }
-            .frame(maxWidth: 500)
-            
+            .frame(maxWidth: 520)
+
             Spacer()
         }
         .padding()
@@ -72,40 +78,49 @@ struct SettingsView: View {
             loadTrustedPeers()
         }
     }
-    
+
     private func loadTrustedPeers() {
-        // TODO: Load from TrustStore via FFI
-        // let trustStore = TrustStore.open(path: "...")
-        // trustedPeers = trustStore.list().map { TrustedPeer(from: $0) }
-        
-        // Mock data for now
-        trustedPeers = [
-            TrustedPeer(id: "1", name: "MacBook Pro", peerId: "peer-abc123"),
-            TrustedPeer(id: "2", name: "iPhone", peerId: "peer-def456")
-        ]
+        do {
+            let trustPath = trustStoreDefaultPath()
+            let store = try trustStoreOpen(path: trustPath)
+            let records = try store.list()
+            trustedPeers = records.map { rec in
+                TrustedPeer(peerId: rec.peerId, displayName: rec.displayName)
+            }
+            lastError = nil
+        } catch {
+            lastError = "Failed to load trust store: \(error)"
+        }
     }
-    
+
     private func addPeer(name: String, qr: String) {
-        // TODO: Parse QR and add to trust store via FFI
-        // let payload = PairingPayload.fromQrString(qr)
-        // let trustStore = TrustStore.open(path: "...")
-        // trustStore.add(peerId: payload.peerId, identityPkB64: ..., displayName: name)
-        
-        // Mock implementation
-        let newPeer = TrustedPeer(
-            id: UUID().uuidString,
-            name: name,
-            peerId: "peer-\(String(Int.random(in: 100000...999999)))"
-        )
-        trustedPeers.append(newPeer)
+        do {
+            let payload = try pairingPayloadFromQrString(s: qr)
+            let pkBytes = payload.identityPk()
+            let pkB64 = Data(pkBytes).base64EncodedString()
+            let displayName = name.isEmpty ? payload.name() : name
+
+            let trustPath = trustStoreDefaultPath()
+            let store = try trustStoreOpen(path: trustPath)
+            try store.add(peerId: payload.peerId(), identityPkB64: pkB64, displayName: displayName)
+
+            loadTrustedPeers()
+            lastError = nil
+        } catch {
+            lastError = "Failed to add peer: \(error)"
+        }
     }
-    
+
     private func removePeer(_ peer: TrustedPeer) {
-        // TODO: Remove from trust store via FFI
-        // let trustStore = TrustStore.open(path: "...")
-        // trustStore.remove(peerId: peer.peerId)
-        
-        trustedPeers.removeAll { $0.id == peer.id }
+        do {
+            let trustPath = trustStoreDefaultPath()
+            let store = try trustStoreOpen(path: trustPath)
+            _ = try store.remove(peerId: peer.peerId)
+            loadTrustedPeers()
+            lastError = nil
+        } catch {
+            lastError = "Failed to remove peer: \(error)"
+        }
     }
 }
 
@@ -114,46 +129,40 @@ struct AddPeerView: View {
     @Binding var peerQR: String
     let onAdd: () -> Void
     let onCancel: () -> Void
-    
+
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 16) {
             Text("Add Trusted Peer")
                 .font(.title2)
-            
+
             VStack(alignment: .leading) {
-                Text("Peer Name:")
-                TextField("Enter peer name", text: $peerName)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                Text("Peer Name (optional)")
+                TextField("e.g. Ahmed’s Android", text: $peerName)
+                    .textFieldStyle(.roundedBorder)
             }
-            
+
             VStack(alignment: .leading) {
-                Text("Pairing QR Code:")
-                TextField("Paste QR code data", text: $peerQR)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                Text("Pairing QR Payload")
+                TextField("Paste QR payload string", text: $peerQR)
+                    .textFieldStyle(.roundedBorder)
             }
-            
+
             HStack {
-                Button("Cancel") {
-                    onCancel()
-                }
-                
+                Button("Cancel") { onCancel() }
                 Spacer()
-                
-                Button("Add") {
-                    onAdd()
-                }
-                .disabled(peerName.isEmpty || peerQR.isEmpty)
+                Button("Add") { onAdd() }
+                    .disabled(peerQR.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .padding()
-        .frame(width: 400, height: 200)
+        .frame(width: 520, height: 220)
     }
 }
 
 struct TrustedPeer: Identifiable {
-    let id: String
-    let name: String
+    var id: String { peerId }
     let peerId: String
+    let displayName: String
 }
 
 #Preview {

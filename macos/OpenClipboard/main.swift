@@ -1,10 +1,11 @@
 import Cocoa
 import SwiftUI
+import OpenClipboardBindings
 
 @main
 struct OpenClipboardApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    
+
     var body: some Scene {
         Settings {
             SettingsView()
@@ -12,46 +13,143 @@ struct OpenClipboardApp: App {
     }
 }
 
+final class MacEventHandler: EventHandler {
+    private let onEvent: @Sendable (Event) -> Void
+
+    enum Event {
+        case clipboardText(peerId: String, text: String, tsMs: UInt64)
+        case fileReceived(peerId: String, name: String, dataPath: String)
+        case peerConnected(peerId: String)
+        case peerDisconnected(peerId: String)
+        case error(message: String)
+    }
+
+    init(onEvent: @escaping @Sendable (Event) -> Void) {
+        self.onEvent = onEvent
+    }
+
+    func onClipboardText(peerId: String, text: String, tsMs: UInt64) {
+        onEvent(.clipboardText(peerId: peerId, text: text, tsMs: tsMs))
+    }
+
+    func onFileReceived(peerId: String, name: String, dataPath: String) {
+        onEvent(.fileReceived(peerId: peerId, name: name, dataPath: dataPath))
+    }
+
+    func onPeerConnected(peerId: String) {
+        onEvent(.peerConnected(peerId: peerId))
+    }
+
+    func onPeerDisconnected(peerId: String) {
+        onEvent(.peerDisconnected(peerId: peerId))
+    }
+
+    func onError(message: String) {
+        onEvent(.error(message: message))
+    }
+}
+
 class AppDelegate: NSObject, NSApplicationDelegate {
-    var statusItem: NSStatusItem?
-    var statusBarMenu: NSMenu?
-    
-    // TODO: Add OpenClipboard FFI integration
-    // import OpenClipboard
-    // var clipboardNode: ClipboardNode?
-    
+    private var statusItem: NSStatusItem?
+    private var statusBarMenu: NSMenu?
+
+    private var node: ClipboardNode?
+    private var handler: MacEventHandler?
+    private var connectedPeers: [String] = []
+
+    private var listenerPort: UInt16 = 18455
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMenuBarApp()
-        // TODO: Initialize ClipboardNode
-        // clipboardNode = ClipboardNode(identityPath: "...", trustPath: "...")
+        wireUpFFI()
     }
-    
+
+    private func wireUpFFI() {
+        do {
+            let identityPath = defaultIdentityPath()
+            let trustPath = trustStoreDefaultPath()
+            let node = try clipboardNodeNew(identityPath: identityPath, trustPath: trustPath)
+            self.node = node
+
+            self.handler = MacEventHandler { [weak self] event in
+                guard let self else { return }
+                DispatchQueue.main.async {
+                    self.handle(event)
+                }
+            }
+
+            if let handler = self.handler {
+                try node.startListener(port: listenerPort, handler: handler)
+            }
+
+            updateMenu()
+        } catch {
+            showError("FFI init failed: \(error)")
+        }
+    }
+
+    private func handle(_ event: MacEventHandler.Event) {
+        switch event {
+        case let .peerConnected(peerId):
+            if !connectedPeers.contains(peerId) {
+                connectedPeers.append(peerId)
+            }
+            updateMenu()
+
+        case let .peerDisconnected(peerId):
+            connectedPeers.removeAll { $0 == peerId }
+            updateMenu()
+
+        case let .clipboardText(peerId, text, _):
+            // Put received text on the system clipboard (MVP behavior).
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+
+            // Also show a small notification.
+            let n = NSUserNotification()
+            n.title = "Clipboard received"
+            n.informativeText = "From \(peerId)"
+            NSUserNotificationCenter.default.deliver(n)
+
+        case let .fileReceived(peerId, name, dataPath):
+            let n = NSUserNotification()
+            n.title = "File received"
+            n.informativeText = "\(name) from \(peerId) saved to \(dataPath)"
+            NSUserNotificationCenter.default.deliver(n)
+
+        case let .error(message):
+            showError(message)
+        }
+    }
+
     private func setupMenuBarApp() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem?.button?.title = "📋"
-        
+
         statusBarMenu = NSMenu()
         statusItem?.menu = statusBarMenu
-        
+
         updateMenu()
     }
-    
+
     private func updateMenu() {
         guard let menu = statusBarMenu else { return }
         menu.removeAllItems()
-        
-        // Peer ID section
-        let peerIdItem = NSMenuItem(title: "Peer ID: \(getPeerId())", action: nil, keyEquivalent: "")
+
+        let peerIdValue = node?.peerId() ?? "(initializing…)"
+        let peerIdItem = NSMenuItem(title: "Peer ID: \(peerIdValue)", action: nil, keyEquivalent: "")
         peerIdItem.isEnabled = false
         menu.addItem(peerIdItem)
-        
+
+        let portItem = NSMenuItem(title: "Listening: \(listenerPort)", action: nil, keyEquivalent: "")
+        portItem.isEnabled = false
+        menu.addItem(portItem)
+
         menu.addItem(NSMenuItem.separator())
-        
-        // Connected peers section
+
         menu.addItem(NSMenuItem(title: "Connected Peers", action: nil, keyEquivalent: ""))
-        let connectedPeers = getConnectedPeers()
         if connectedPeers.isEmpty {
-            let noPeersItem = NSMenuItem(title: "  No peers connected", action: nil, keyEquivalent: "")
+            let noPeersItem = NSMenuItem(title: "  None", action: nil, keyEquivalent: "")
             noPeersItem.isEnabled = false
             menu.addItem(noPeersItem)
         } else {
@@ -61,49 +159,68 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 menu.addItem(peerItem)
             }
         }
-        
+
         menu.addItem(NSMenuItem.separator())
-        
-        // Actions
-        menu.addItem(NSMenuItem(title: "Send Clipboard", action: #selector(sendClipboard), keyEquivalent: "s"))
+
+        menu.addItem(NSMenuItem(title: "Send Clipboard…", action: #selector(sendClipboard), keyEquivalent: "s"))
         menu.addItem(NSMenuItem(title: "Settings", action: #selector(showSettings), keyEquivalent: ","))
-        
+
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q"))
     }
-    
-    private func getPeerId() -> String {
-        // TODO: Return actual peer ID from ClipboardNode
-        // return clipboardNode?.peerId() ?? "unknown"
-        return "peer-12345abcdef"
-    }
-    
-    private func getConnectedPeers() -> [String] {
-        // TODO: Return actual connected peers
-        return ["peer-67890ghijkl", "peer-mnopqr123456"]
-    }
-    
+
     @objc private func sendClipboard() {
-        // TODO: Implement clipboard sending
-        // Get current clipboard content
-        // Show peer selection dialog
-        // Call clipboardNode.connectAndSendText() or connectAndSendFile()
-        
+        guard let node else {
+            showError("Clipboard node not initialized")
+            return
+        }
+
+        let pb = NSPasteboard.general
+        guard let text = pb.string(forType: .string), !text.isEmpty else {
+            showError("Clipboard is empty or not text")
+            return
+        }
+
         let alert = NSAlert()
         alert.messageText = "Send Clipboard"
-        alert.informativeText = "This feature is not yet implemented. TODO: Integrate with ClipboardNode FFI."
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
+        alert.informativeText = "Enter peer address (ip:port)"
+
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        input.placeholderString = "192.168.1.10:18455"
+        alert.accessoryView = input
+
+        alert.addButton(withTitle: "Send")
+        alert.addButton(withTitle: "Cancel")
+
+        let res = alert.runModal()
+        if res != .alertFirstButtonReturn {
+            return
+        }
+
+        let addr = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !addr.isEmpty else { return }
+
+        do {
+            try node.connectAndSendText(addr: addr, text: text)
+        } catch {
+            showError("Send failed: \(error)")
+        }
     }
-    
+
     @objc private func showSettings() {
-        // Open Settings window
         NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
     }
-    
+
     @objc private func quit() {
-        // TODO: Stop ClipboardNode listener
-        // clipboardNode?.stop()
+        node?.stop()
         NSApplication.shared.terminate(self)
+    }
+
+    private func showError(_ message: String) {
+        // Avoid spamming alerts if the app is in background; use notification.
+        let n = NSUserNotification()
+        n.title = "OpenClipboard"
+        n.informativeText = message
+        NSUserNotificationCenter.default.deliver(n)
     }
 }
