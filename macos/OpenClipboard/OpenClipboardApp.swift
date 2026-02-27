@@ -49,6 +49,7 @@ final class MacEventHandler: EventHandler {
     }
 }
 
+@MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var statusBarMenu: NSMenu?
@@ -73,7 +74,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
             self.handler = MacEventHandler { [weak self] event in
                 guard let self else { return }
-                DispatchQueue.main.async {
+                Task { @MainActor in
                     self.handle(event)
                 }
             }

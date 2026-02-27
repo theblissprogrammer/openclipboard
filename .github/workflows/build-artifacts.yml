@@ -187,7 +187,9 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: OpenClipboard-Android
-        path: android/app/build/outputs/apk/debug/app-debug.apk
+        # Be resilient to variant/filename differences across AGP versions.
+        path: android/app/build/outputs/apk/debug/*.apk
+        if-no-files-found: error
 
   test:
     runs-on: ubuntu-latest
