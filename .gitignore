@@ -1,0 +1,18 @@
+# Rust
+core/target/
+**/*.o
+**/*.d
+
+# macOS
+.DS_Store
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+
+# IDE
+.idea/
+.vscode/
+*.swp
