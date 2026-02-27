@@ -1,0 +1,21 @@
+[package]
+name = "openclipboard"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.102"
+base64 = "0.22"
+chrono = { version = "0.4.44", features = ["serde"] }
+clap = { version = "4.5.32", features = ["derive"] }
+ed25519-dalek = { version = "2.2.0", features = ["rand_core"] }
+rand_core = "0.6"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+tokio = { version = "1.49.0", features = ["full"] }
+blake3 = "1.8.3"
+openclipboard_core = { path = "../core" }
+
+[dev-dependencies]
+tempfile = "3.13"
+

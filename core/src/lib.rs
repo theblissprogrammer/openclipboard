@@ -17,6 +17,6 @@ pub use transport::{Connection, Transport, Listener, MemoryConnection, memory_co
 pub use discovery::{Discovery, PeerInfo, MockDiscovery};
 pub use clipboard::{ClipboardContent, ClipboardProvider, MockClipboard};
 pub use session::Session;
-pub use trust::{TrustRecord, TrustStore, MemoryTrustStore, FileTrustStore};
+pub use trust::{TrustRecord, TrustStore, MemoryTrustStore, FileTrustStore, default_trust_store_path};
 pub use replay::{ReplayProtector, MemoryReplayProtector};
 pub use pairing::{PairingPayload, derive_confirmation_code};

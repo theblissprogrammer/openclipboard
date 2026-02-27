@@ -17,6 +17,7 @@ pub trait IdentityProvider: Send + Sync {
 /// Ed25519-based identity using ed25519-dalek.
 ///
 /// Peer ID is `blake3(public_key)` in hex.
+#[derive(Clone)]
 pub struct Ed25519Identity {
     signing_key: SigningKey,
     id: String,
@@ -34,6 +35,11 @@ impl Ed25519Identity {
     pub fn from_signing_key(signing_key: SigningKey) -> Self {
         let id = Self::peer_id_from_public_key(signing_key.verifying_key().as_bytes());
         Self { signing_key, id }
+    }
+
+    /// Export the signing key seed bytes (32 bytes). Useful for local persistence.
+    pub fn signing_key_seed_bytes(&self) -> [u8; 32] {
+        self.signing_key.to_bytes()
     }
 
     /// Verify signature against the provided raw public key bytes.

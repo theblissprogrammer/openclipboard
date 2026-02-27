@@ -1,5 +1,6 @@
 # Rust
 core/target/
+target/
 **/*.o
 **/*.d
 

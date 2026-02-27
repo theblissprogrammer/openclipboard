@@ -7,6 +7,12 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+/// Default location for the trust store file: `~/.openclipboard/trust.json`.
+pub fn default_trust_store_path() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    PathBuf::from(home).join(".openclipboard").join("trust.json")
+}
+
 /// A record of a trusted peer.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TrustRecord {
