@@ -1,0 +1,62 @@
+namespace openclipboard {
+  Identity identity_generate();
+  [Throws=OpenClipboardError] Identity identity_load(string path);
+
+  PairingPayload pairing_payload_create(
+    u8 version,
+    string peer_id,
+    string name,
+    sequence<u8> identity_pk,
+    u16 lan_port,
+    sequence<u8> nonce
+  );
+
+  [Throws=OpenClipboardError] PairingPayload pairing_payload_from_qr_string(string s);
+
+  string derive_confirmation_code(sequence<u8> nonce, string peer_a_id, string peer_b_id);
+
+  string default_identity_path();
+
+  [Throws=OpenClipboardError] TrustStore trust_store_open(string path);
+  string trust_store_default_path();
+};
+
+[Error]
+enum OpenClipboardError { "Other" };
+
+dictionary IdentityInfo {
+  string peer_id;
+  string pubkey_b64;
+};
+
+interface Identity {
+  string peer_id();
+  string pubkey_b64();
+  IdentityInfo info();
+  [Throws=OpenClipboardError] void save(string path);
+};
+
+interface PairingPayload {
+  u8 version();
+  string peer_id();
+  string name();
+  sequence<u8> identity_pk();
+  u16 lan_port();
+  sequence<u8> nonce();
+
+  [Throws=OpenClipboardError] string to_qr_string();
+};
+
+dictionary TrustRecord {
+  string peer_id;
+  string identity_pk_b64;
+  string display_name;
+  u64 created_at_ms;
+};
+
+interface TrustStore {
+  [Throws=OpenClipboardError] void add(string peer_id, string identity_pk_b64, string display_name);
+  [Throws=OpenClipboardError] TrustRecord? get(string peer_id);
+  [Throws=OpenClipboardError] sequence<TrustRecord> list();
+  [Throws=OpenClipboardError] boolean remove(string peer_id);
+};
