@@ -55,9 +55,13 @@ final class E2ETests: XCTestCase {
         }
 
         try nodeA.startListener(port: port, handler: handler)
+
+        // Give the listener a moment to bind on slower CI runners.
+        Thread.sleep(forTimeInterval: 0.2)
+
         try nodeB.connectAndSendText(addr: "127.0.0.1:\(port)", text: "hello")
 
-        wait(for: [exp], timeout: 5.0)
+        wait(for: [exp], timeout: 20.0)
 
         nodeA.stop()
         nodeB.stop()

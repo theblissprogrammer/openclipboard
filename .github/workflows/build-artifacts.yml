@@ -182,13 +182,17 @@ jobs:
       run: |
         cd android
         ./gradlew assembleDebug --no-daemon
-        
+
+    - name: List produced APKs
+      run: |
+        ls -Rlah android/app/build/outputs || true
+
     - name: Upload Android APK artifact
       uses: actions/upload-artifact@v4
       with:
         name: OpenClipboard-Android
         # Be resilient to variant/filename differences across AGP versions.
-        path: android/app/build/outputs/apk/debug/*.apk
+        path: android/app/build/outputs/**/*.apk
         if-no-files-found: error
 
   test:
