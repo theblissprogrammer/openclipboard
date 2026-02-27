@@ -3,9 +3,9 @@ import OpenClipboardBindings
 
 final class E2ETests: XCTestCase {
     final class Handler: EventHandler {
-        let onClipboard: (String, String) -> Void
+        let onClipboard: @Sendable (String, String) -> Void
 
-        init(onClipboard: @escaping (String, String) -> Void) {
+        init(onClipboard: @escaping @Sendable (String, String) -> Void) {
             self.onClipboard = onClipboard
         }
 
