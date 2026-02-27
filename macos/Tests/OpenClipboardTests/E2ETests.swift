@@ -4,13 +4,16 @@ import OpenClipboardBindings
 final class E2ETests: XCTestCase {
     final class Handler: EventHandler {
         let onClipboard: @Sendable (String, String) -> Void
+        let onPeerConnected: @Sendable (String) -> Void
         let onError: @Sendable (String) -> Void
 
         init(
             onClipboard: @escaping @Sendable (String, String) -> Void,
+            onPeerConnected: @escaping @Sendable (String) -> Void,
             onError: @escaping @Sendable (String) -> Void
         ) {
             self.onClipboard = onClipboard
+            self.onPeerConnected = onPeerConnected
             self.onError = onError
         }
 
@@ -19,7 +22,7 @@ final class E2ETests: XCTestCase {
         }
 
         func onFileReceived(peerId: String, name: String, dataPath: String) {}
-        func onPeerConnected(peerId: String) {}
+        func onPeerConnected(peerId: String) { onPeerConnected(peerId) }
         func onPeerDisconnected(peerId: String) {}
         func onError(message: String) { onError(message) }
     }
@@ -52,7 +55,8 @@ final class E2ETests: XCTestCase {
 
         let port = UInt16(Int.random(in: 20000...55000))
 
-        let exp = expectation(description: "receive clipboard text")
+        let peerConnected = expectation(description: "peer connected")
+        let receivedClipboard = expectation(description: "receive clipboard text")
 
         final class ErrorBox: @unchecked Sendable {
             private let lock = NSLock()
@@ -74,12 +78,16 @@ final class E2ETests: XCTestCase {
         let handler = Handler(
             onClipboard: { peerId, text in
                 if !peerId.isEmpty && text == "hello" {
-                    exp.fulfill()
+                    receivedClipboard.fulfill()
                 }
+            },
+            onPeerConnected: { _ in
+                peerConnected.fulfill()
             },
             onError: { message in
                 errorBox.set(message)
-                exp.fulfill() // unblock wait so we can surface the actual error
+                peerConnected.fulfill() // unblock waits so we can surface the actual error
+                receivedClipboard.fulfill()
             }
         )
 
@@ -90,11 +98,20 @@ final class E2ETests: XCTestCase {
 
         try nodeB.connectAndSendText(addr: "127.0.0.1:\(port)", text: "hello")
 
-        let result = XCTWaiter().wait(for: [exp], timeout: 20.0)
+        // First ensure we actually got a connection/handshake.
+        let r1 = XCTWaiter().wait(for: [peerConnected], timeout: 10.0)
+        if let lastError = errorBox.get() {
+            XCTFail("Node reported error during connect/handshake: \(lastError)")
+        } else if r1 != .completed {
+            XCTFail("Timed out waiting for peer connection")
+        }
+
+        // Then wait for clipboard payload.
+        let r2 = XCTWaiter().wait(for: [receivedClipboard], timeout: 20.0)
         if let lastError = errorBox.get() {
             XCTFail("Node reported error: \(lastError)")
-        } else if result != .completed {
-            XCTFail("Timed out waiting for clipboard text; no error was reported by node")
+        } else if r2 != .completed {
+            XCTFail("Timed out waiting for clipboard text")
         }
 
         nodeA.stop()
