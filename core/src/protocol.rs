@@ -5,6 +5,11 @@ use serde::{Deserialize, Serialize};
 
 pub const PROTOCOL_VERSION: u8 = 0;
 
+/// Maximum allowed frame payload length.
+///
+/// Prevents memory exhaustion when decoding untrusted frames.
+pub const MAX_PAYLOAD_LEN: usize = 4 * 1024 * 1024;
+
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StreamId {
@@ -88,6 +93,9 @@ pub fn decode_frame(mut bytes: &[u8]) -> anyhow::Result<Frame> {
     let stream_id = bytes.get_u32();
     let seq = bytes.get_u64();
     let len = bytes.get_u32() as usize;
+    if len > MAX_PAYLOAD_LEN {
+        anyhow::bail!("payload too large: {len} > {MAX_PAYLOAD_LEN}");
+    }
     if bytes.len() < len {
         anyhow::bail!("payload truncated");
     }
@@ -239,5 +247,18 @@ mod tests {
         let enc = encode_frame(&f);
         let dec = decode_frame(&enc).unwrap();
         assert_eq!(dec, f);
+    }
+
+    #[test]
+    fn reject_oversized_payload_len() {
+        // Only provide the header; decoder should reject based on length before reading payload.
+        let mut b = BytesMut::with_capacity(18);
+        b.put_u8(PROTOCOL_VERSION);
+        b.put_u8(MsgType::Ping as u8);
+        b.put_u32(StreamId::Control as u32);
+        b.put_u64(1);
+        b.put_u32((MAX_PAYLOAD_LEN as u32) + 1);
+        let err = decode_frame(&b).unwrap_err();
+        assert!(err.to_string().contains("payload too large"));
     }
 }

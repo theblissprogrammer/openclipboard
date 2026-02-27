@@ -3,6 +3,7 @@
 use crate::clipboard::{ClipboardContent, ClipboardProvider};
 use crate::identity::{Ed25519Identity, IdentityProvider};
 use crate::protocol::{hello_transcript, Frame, Message};
+use crate::replay::ReplayProtector;
 use crate::transport::Connection;
 use crate::trust::TrustStore;
 use anyhow::Result;
@@ -10,12 +11,14 @@ use base64::Engine as _;
 use rand_core::RngCore;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 pub struct Session<C: Connection, I: IdentityProvider, CB: ClipboardProvider> {
     pub conn: Arc<C>,
     pub identity: Arc<I>,
     pub clipboard: Arc<CB>,
     trust_store: Option<Arc<dyn TrustStore>>,
+    replay: Option<Arc<dyn ReplayProtector>>,
     pairing_mode: bool,
     seq: AtomicU64,
 }
@@ -27,6 +30,7 @@ impl<C: Connection, I: IdentityProvider, CB: ClipboardProvider> Session<C, I, CB
             identity: Arc::new(identity),
             clipboard: Arc::new(clipboard),
             trust_store: None,
+            replay: None,
             pairing_mode: false,
             seq: AtomicU64::new(0),
         }
@@ -39,6 +43,26 @@ impl<C: Connection, I: IdentityProvider, CB: ClipboardProvider> Session<C, I, CB
             identity: Arc::new(identity),
             clipboard: Arc::new(clipboard),
             trust_store: Some(trust_store),
+            replay: None,
+            pairing_mode: false,
+            seq: AtomicU64::new(0),
+        }
+    }
+
+    /// Create a session with trust verification and optional replay protection.
+    pub fn with_trust_and_replay(
+        conn: C,
+        identity: I,
+        clipboard: CB,
+        trust_store: Arc<dyn TrustStore>,
+        replay: Arc<dyn ReplayProtector>,
+    ) -> Self {
+        Self {
+            conn: Arc::new(conn),
+            identity: Arc::new(identity),
+            clipboard: Arc::new(clipboard),
+            trust_store: Some(trust_store),
+            replay: Some(replay),
             pairing_mode: false,
             seq: AtomicU64::new(0),
         }
@@ -51,6 +75,26 @@ impl<C: Connection, I: IdentityProvider, CB: ClipboardProvider> Session<C, I, CB
             identity: Arc::new(identity),
             clipboard: Arc::new(clipboard),
             trust_store: Some(trust_store),
+            replay: None,
+            pairing_mode: true,
+            seq: AtomicU64::new(0),
+        }
+    }
+
+    /// Create a session in pairing mode (allows untrusted peers), with optional replay protection.
+    pub fn with_pairing_mode_and_replay(
+        conn: C,
+        identity: I,
+        clipboard: CB,
+        trust_store: Arc<dyn TrustStore>,
+        replay: Arc<dyn ReplayProtector>,
+    ) -> Self {
+        Self {
+            conn: Arc::new(conn),
+            identity: Arc::new(identity),
+            clipboard: Arc::new(clipboard),
+            trust_store: Some(trust_store),
+            replay: Some(replay),
             pairing_mode: true,
             seq: AtomicU64::new(0),
         }
@@ -84,11 +128,18 @@ impl<C: Connection, I: IdentityProvider, CB: ClipboardProvider> Session<C, I, CB
     /// Send HELLO and receive peer's HELLO, verifying trust.
     /// Returns the peer's peer_id on success.
     pub async fn handshake(&self) -> Result<String> {
+        self.handshake_with_timeout(Duration::from_secs(5)).await
+    }
+
+    /// Handshake with an explicit timeout so we never hang forever.
+    pub async fn handshake_with_timeout(&self, timeout_dur: Duration) -> Result<String> {
         // Send our HELLO
         self.send_hello().await?;
 
         // Receive peer's HELLO
-        let frame = self.conn.recv().await?;
+        let frame = tokio::time::timeout(timeout_dur, self.conn.recv())
+            .await
+            .map_err(|_| anyhow::anyhow!("handshake timed out"))??;
         let msg: Message = serde_json::from_slice(&frame.payload)?;
 
         match msg {
@@ -128,6 +179,11 @@ impl<C: Connection, I: IdentityProvider, CB: ClipboardProvider> Session<C, I, CB
                 if !Ed25519Identity::verify_with_public_key(&transcript, &sig, &identity_pk) {
                     self.conn.close();
                     anyhow::bail!("invalid hello signature");
+                }
+
+                // Optional anti-replay: after signature verification, reject reused nonces.
+                if let Some(ref replay) = self.replay {
+                    replay.check_and_store(&peer_id, &nonce)?;
                 }
 
                 // Check trust if trust store is configured and not in pairing mode.
@@ -241,6 +297,7 @@ mod tests {
     use super::*;
     use crate::clipboard::MockClipboard;
     use crate::identity::{Ed25519Identity, MockIdentity};
+    use crate::replay::MemoryReplayProtector;
     use crate::transport::memory_connection_pair;
     use crate::trust::MemoryTrustStore;
 
@@ -500,6 +557,43 @@ mod tests {
         let res = session_a.handshake().await;
         assert!(res.is_ok());
         assert_eq!(res.unwrap(), bob.peer_id());
+        handle.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn handshake_rejects_replayed_hello_nonce_when_replay_protector_enabled() {
+        let (conn_a, conn_b) = memory_connection_pair();
+
+        let alice = Ed25519Identity::generate();
+        let bob = Ed25519Identity::generate();
+
+        let trust_a = Arc::new(MemoryTrustStore::new());
+        let replay = Arc::new(MemoryReplayProtector::new(16));
+        let session_a = Session::with_pairing_mode_and_replay(conn_a, alice, MockClipboard::new(), trust_a, replay);
+
+        // Bob will replay the exact same HELLO twice (same pk + nonce + sig).
+        let replayed_hello = make_signed_hello(
+            &bob,
+            bob.peer_id().to_string(),
+            bob.public_key_bytes(),
+            [4u8; 32],
+            None,
+        );
+
+        let handle = tokio::spawn(async move {
+            for _ in 0..2 {
+                let _ = conn_b.recv().await.unwrap();
+                let payload = serde_json::to_vec(&replayed_hello).unwrap();
+                let frame = Frame::new(replayed_hello.msg_type(), replayed_hello.stream_id(), 1, payload);
+                conn_b.send(frame).await.unwrap();
+            }
+        });
+
+        // First handshake should succeed.
+        assert!(session_a.handshake_with_timeout(Duration::from_millis(500)).await.is_ok());
+        // Second should fail due to replay.
+        assert!(session_a.handshake_with_timeout(Duration::from_millis(500)).await.is_err());
+
         handle.await.unwrap();
     }
 }
