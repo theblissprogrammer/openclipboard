@@ -92,4 +92,9 @@ jobs:
         run: |
           set -euo pipefail
           swiftc -version
-          swiftc -typecheck -I ffi/bindings/swift ffi/bindings/swift/openclipboard.swift
+          # Ensure the generated Clang module (openclipboardFFI) can be imported.
+          swiftc -typecheck \
+            -I ffi/bindings/swift \
+            -Xcc -Iffi/bindings/swift \
+            -Xcc -fmodule-map-file=ffi/bindings/swift/openclipboardFFI.modulemap \
+            ffi/bindings/swift/openclipboard.swift
