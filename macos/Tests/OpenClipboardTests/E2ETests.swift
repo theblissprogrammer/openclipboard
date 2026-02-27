@@ -54,8 +54,22 @@ final class E2ETests: XCTestCase {
 
         let exp = expectation(description: "receive clipboard text")
 
-        let lock = NSLock()
-        var lastError: String?
+        final class ErrorBox: @unchecked Sendable {
+            private let lock = NSLock()
+            private var _value: String?
+
+            func set(_ v: String) {
+                lock.lock(); defer { lock.unlock() }
+                _value = v
+            }
+
+            func get() -> String? {
+                lock.lock(); defer { lock.unlock() }
+                return _value
+            }
+        }
+
+        let errorBox = ErrorBox()
 
         let handler = Handler(
             onClipboard: { peerId, text in
@@ -64,8 +78,7 @@ final class E2ETests: XCTestCase {
                 }
             },
             onError: { message in
-                lock.lock(); defer { lock.unlock() }
-                lastError = message
+                errorBox.set(message)
             }
         )
 
@@ -78,8 +91,7 @@ final class E2ETests: XCTestCase {
 
         let result = XCTWaiter().wait(for: [exp], timeout: 20.0)
         if result != .completed {
-            lock.lock(); defer { lock.unlock() }
-            if let lastError {
+            if let lastError = errorBox.get() {
                 XCTFail("Timed out waiting for clipboard text; last node error: \(lastError)")
             } else {
                 XCTFail("Timed out waiting for clipboard text; no error was reported by node")
