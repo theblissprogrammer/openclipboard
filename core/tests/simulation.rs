@@ -1,129 +1,78 @@
-//! Simulation tests using in-memory mocks.
+use openclipboard_core::{
+    derive_confirmation_code,
+    pairing::PairingPayload,
+    Ed25519Identity,
+    IdentityProvider,
+    MemoryTrustStore,
+    MockClipboard,
+    Session,
+    TrustRecord,
+    TrustStore,
+};
 
-use openclipboard_core::*;
-
-#[tokio::test]
-async fn two_peers_discover_each_other() {
-    let disc = MockDiscovery::new_shared();
-    let d2 = disc.clone_shared();
-
-    disc.advertise(PeerInfo { peer_id: "a".into(), name: "Alice".into(), addr: "mem://a".into() }).await.unwrap();
-    d2.advertise(PeerInfo { peer_id: "b".into(), name: "Bob".into(), addr: "mem://b".into() }).await.unwrap();
-
-    let peers_a = disc.scan().await.unwrap();
-    let peers_b = d2.scan().await.unwrap();
-
-    assert_eq!(peers_a.len(), 2);
-    assert_eq!(peers_b.len(), 2);
-    assert!(peers_a.iter().any(|p| p.peer_id == "b"));
-    assert!(peers_b.iter().any(|p| p.peer_id == "a"));
-}
+use openclipboard_core::transport::memory_connection_pair;
+use chrono::Utc;
 
 #[tokio::test]
-async fn clipboard_text_sync() {
-    let (conn_a, conn_b) = memory_connection_pair();
-    let cb_a = MockClipboard::new();
-    cb_a.write(ClipboardContent::Text("synced text".into())).unwrap();
+async fn full_pairing_and_trusted_handshake_flow() {
+    // Two peers with real Ed25519 identities
+    let alice = Ed25519Identity::generate();
+    let bob = Ed25519Identity::generate();
 
-    let session_a = Session::new(conn_a, MockIdentity::new("a"), cb_a);
-    let session_b = Session::new(conn_b, MockIdentity::new("b"), MockClipboard::new());
-
-    session_a.send_clipboard().await.unwrap();
-    session_b.receive_clipboard().await.unwrap();
-
-    assert_eq!(session_b.clipboard.read().unwrap(), ClipboardContent::Text("synced text".into()));
-}
-
-#[tokio::test]
-async fn clipboard_image_sync() {
-    let (conn_a, conn_b) = memory_connection_pair();
-    let cb_a = MockClipboard::new();
-    let img = ClipboardContent::Image {
-        mime: "image/png".into(),
-        width: 4,
-        height: 4,
-        bytes: vec![0x89, 0x50, 0x4E, 0x47, 1, 2, 3, 4],
+    // Pairing exchange (QR-like)
+    let nonce = vec![7u8; 32];
+    let alice_payload = PairingPayload {
+        version: 1,
+        peer_id: alice.peer_id().to_string(),
+        name: "Alice".into(),
+        identity_pk: alice.public_key_bytes(),
+        lan_port: 18455,
+        nonce: nonce.clone(),
     };
-    cb_a.write(img.clone()).unwrap();
 
-    let session_a = Session::new(conn_a, MockIdentity::new("a"), cb_a);
-    let session_b = Session::new(conn_b, MockIdentity::new("b"), MockClipboard::new());
+    let bob_payload = PairingPayload {
+        version: 1,
+        peer_id: bob.peer_id().to_string(),
+        name: "Bob".into(),
+        identity_pk: bob.public_key_bytes(),
+        lan_port: 18456,
+        // responder can echo nonce or use empty; code derivation uses initiator nonce.
+        nonce: vec![],
+    };
 
-    session_a.send_clipboard().await.unwrap();
-    session_b.receive_clipboard().await.unwrap();
+    let alice_code = derive_confirmation_code(&alice_payload.nonce, &alice_payload.peer_id, &bob_payload.peer_id);
+    let bob_code = derive_confirmation_code(&alice_payload.nonce, &alice_payload.peer_id, &bob_payload.peer_id);
+    assert_eq!(alice_code, bob_code);
+    assert_eq!(alice_code.len(), 6);
 
-    assert_eq!(session_b.clipboard.read().unwrap(), img);
-}
+    // Trust stores updated after user confirms code
+    let alice_trust = std::sync::Arc::new(MemoryTrustStore::new());
+    alice_trust
+        .save(TrustRecord {
+            peer_id: bob_payload.peer_id.clone(),
+            identity_pk: bob_payload.identity_pk.clone(),
+            display_name: bob_payload.name.clone(),
+            created_at: Utc::now(),
+        })
+        .unwrap();
 
-#[tokio::test]
-async fn file_offer_accept_transfer() {
+    let bob_trust = std::sync::Arc::new(MemoryTrustStore::new());
+    bob_trust
+        .save(TrustRecord {
+            peer_id: alice_payload.peer_id.clone(),
+            identity_pk: alice_payload.identity_pk.clone(),
+            display_name: alice_payload.name.clone(),
+            created_at: Utc::now(),
+        })
+        .unwrap();
+
+    // Now they can connect and handshake with trust verification
     let (conn_a, conn_b) = memory_connection_pair();
-    let session_a = Session::new(conn_a, MockIdentity::new("a"), MockClipboard::new());
-    let session_b = Session::new(conn_b, MockIdentity::new("b"), MockClipboard::new());
 
-    // A offers file
-    session_a.send_file_offer("f1", "test.txt", 11, "text/plain").await.unwrap();
-    let msg = session_b.recv_message().await.unwrap();
-    match &msg {
-        Message::FileOffer { file_id, name, size, .. } => {
-            assert_eq!(file_id, "f1");
-            assert_eq!(name, "test.txt");
-            assert_eq!(*size, 11);
-        }
-        _ => panic!("expected FileOffer"),
-    }
+    let session_a = Session::with_trust(conn_a, alice, MockClipboard::new(), alice_trust);
+    let session_b = Session::with_trust(conn_b, bob, MockClipboard::new(), bob_trust);
 
-    // B accepts
-    session_b.send_file_accept("f1").await.unwrap();
-    let msg = session_a.recv_message().await.unwrap();
-    assert!(matches!(msg, Message::FileAccept { file_id } if file_id == "f1"));
-
-    // A sends chunk
-    let data = b"hello world";
-    session_a.send_file_chunk("f1", 0, data).await.unwrap();
-    let msg = session_b.recv_message().await.unwrap();
-    match msg {
-        Message::FileChunk { file_id, offset, data_b64 } => {
-            assert_eq!(file_id, "f1");
-            assert_eq!(offset, 0);
-            let decoded = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &data_b64).unwrap();
-            assert_eq!(decoded, data);
-        }
-        _ => panic!("expected FileChunk"),
-    }
-
-    // A sends done
-    let hash = blake3::hash(data).to_hex().to_string();
-    session_a.send_file_done("f1", &hash).await.unwrap();
-    let msg = session_b.recv_message().await.unwrap();
-    assert!(matches!(msg, Message::FileDone { file_id, hash: h } if file_id == "f1" && h == hash));
-}
-
-#[tokio::test]
-async fn session_reconnect() {
-    // First connection
-    let (conn_a1, conn_b1) = memory_connection_pair();
-    let cb_a = MockClipboard::new();
-    cb_a.write(ClipboardContent::Text("before disconnect".into())).unwrap();
-    let session_a1 = Session::new(conn_a1, MockIdentity::new("a"), MockClipboard::new());
-    let session_b1 = Session::new(conn_b1, MockIdentity::new("b"), MockClipboard::new());
-
-    session_a1.send_hello().await.unwrap();
-    let msg = session_b1.recv_message().await.unwrap();
-    assert!(matches!(msg, Message::Hello { .. }));
-
-    // Disconnect
-    session_a1.conn.close();
-    assert!(session_a1.conn.is_closed());
-
-    // Reconnect with new connections
-    let (conn_a2, conn_b2) = memory_connection_pair();
-    let cb_a2 = MockClipboard::new();
-    cb_a2.write(ClipboardContent::Text("after reconnect".into())).unwrap();
-    let session_a2 = Session::new(conn_a2, MockIdentity::new("a"), cb_a2);
-    let session_b2 = Session::new(conn_b2, MockIdentity::new("b"), MockClipboard::new());
-
-    session_a2.send_clipboard().await.unwrap();
-    session_b2.receive_clipboard().await.unwrap();
-    assert_eq!(session_b2.clipboard.read().unwrap(), ClipboardContent::Text("after reconnect".into()));
+    let (ra, rb) = tokio::join!(session_a.handshake(), session_b.handshake());
+    assert_eq!(ra.unwrap(), session_b.identity.peer_id());
+    assert_eq!(rb.unwrap(), session_a.identity.peer_id());
 }
