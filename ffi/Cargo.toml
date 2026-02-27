@@ -16,6 +16,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", features = ["clock"] }
 uniffi = "0.29.5"
+uniffi_bindgen = "0.29.5"
+camino = "1.1"
 openclipboard_core = { path = "../core" }
 
 [build-dependencies]
