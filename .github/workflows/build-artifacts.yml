@@ -168,20 +168,20 @@ jobs:
           ~/.gradle/wrapper
         key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
         
-    - name: Make gradlew executable
-      run: chmod +x android/gradlew
-      
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v4
+
     - name: Run Android JVM unit tests
       run: |
         # Ensure host Rust cdylib exists for unit tests
         cargo build -p openclipboard_ffi
         cd android
-        ./gradlew testDebugUnitTest --no-daemon
+        gradle testDebugUnitTest --no-daemon
 
     - name: Build Android APK
       run: |
         cd android
-        ./gradlew assembleDebug --no-daemon
+        gradle assembleDebug --no-daemon
 
     - name: List produced APKs
       run: |
