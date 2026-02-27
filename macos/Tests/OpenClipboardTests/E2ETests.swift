@@ -79,6 +79,7 @@ final class E2ETests: XCTestCase {
             },
             onError: { message in
                 errorBox.set(message)
+                exp.fulfill() // unblock wait so we can surface the actual error
             }
         )
 
@@ -90,12 +91,10 @@ final class E2ETests: XCTestCase {
         try nodeB.connectAndSendText(addr: "127.0.0.1:\(port)", text: "hello")
 
         let result = XCTWaiter().wait(for: [exp], timeout: 20.0)
-        if result != .completed {
-            if let lastError = errorBox.get() {
-                XCTFail("Timed out waiting for clipboard text; last node error: \(lastError)")
-            } else {
-                XCTFail("Timed out waiting for clipboard text; no error was reported by node")
-            }
+        if let lastError = errorBox.get() {
+            XCTFail("Node reported error: \(lastError)")
+        } else if result != .completed {
+            XCTFail("Timed out waiting for clipboard text; no error was reported by node")
         }
 
         nodeA.stop()
