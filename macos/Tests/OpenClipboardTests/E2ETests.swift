@@ -4,9 +4,14 @@ import OpenClipboardBindings
 final class E2ETests: XCTestCase {
     final class Handler: EventHandler {
         let onClipboard: @Sendable (String, String) -> Void
+        let onError: @Sendable (String) -> Void
 
-        init(onClipboard: @escaping @Sendable (String, String) -> Void) {
+        init(
+            onClipboard: @escaping @Sendable (String, String) -> Void,
+            onError: @escaping @Sendable (String) -> Void
+        ) {
             self.onClipboard = onClipboard
+            self.onError = onError
         }
 
         func onClipboardText(peerId: String, text: String, tsMs: UInt64) {
@@ -16,7 +21,7 @@ final class E2ETests: XCTestCase {
         func onFileReceived(peerId: String, name: String, dataPath: String) {}
         func onPeerConnected(peerId: String) {}
         func onPeerDisconnected(peerId: String) {}
-        func onError(message: String) {}
+        func onError(message: String) { onError(message) }
     }
 
     func testClipboardNodeLoopbackTextE2E() throws {
@@ -48,11 +53,21 @@ final class E2ETests: XCTestCase {
         let port = UInt16(Int.random(in: 20000...55000))
 
         let exp = expectation(description: "receive clipboard text")
-        let handler = Handler { peerId, text in
-            if !peerId.isEmpty && text == "hello" {
-                exp.fulfill()
+
+        let lock = NSLock()
+        var lastError: String?
+
+        let handler = Handler(
+            onClipboard: { peerId, text in
+                if !peerId.isEmpty && text == "hello" {
+                    exp.fulfill()
+                }
+            },
+            onError: { message in
+                lock.lock(); defer { lock.unlock() }
+                lastError = message
             }
-        }
+        )
 
         try nodeA.startListener(port: port, handler: handler)
 
@@ -61,7 +76,15 @@ final class E2ETests: XCTestCase {
 
         try nodeB.connectAndSendText(addr: "127.0.0.1:\(port)", text: "hello")
 
-        wait(for: [exp], timeout: 20.0)
+        let result = XCTWaiter().wait(for: [exp], timeout: 20.0)
+        if result != .completed {
+            lock.lock(); defer { lock.unlock() }
+            if let lastError {
+                XCTFail("Timed out waiting for clipboard text; last node error: \(lastError)")
+            } else {
+                XCTFail("Timed out waiting for clipboard text; no error was reported by node")
+            }
+        }
 
         nodeA.stop()
         nodeB.stop()

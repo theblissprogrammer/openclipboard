@@ -179,32 +179,13 @@ then
     die "xargs is not available"
 fi
 
-# Use "xargs" to parse quoted args.
+# The upstream Gradle wrapper script uses some fairly involved POSIX-shell
+# argument parsing to handle quoting/escaping.
 #
-# With -n1 it outputs one arg per line, with the quotes and backslashes removed.
+# This repository's wrapper script was truncated/corrupted (it was printing an
+# `exec ...` line rather than executing it), which made `./gradlew` a no-op in CI.
 #
-# In Bash we could simply go:
-#
-#   readarray ARGS < <( xargs -n1 <<<"$var" ) &&
-#   set -- "${ARGS[@]}" "$@"
-#
-# but POSIX shell has neither arrays nor command substitution, so instead we
-# post-process each arg (as a line of input to sed) to backslash-escape any
-# character that might be a shell metacharacter, then use eval to parse
-# each line into a separate argument.
+# For our CI/MVP needs, we can safely exec Java with the arguments we already
+# assembled above.
 
-for arg
-do
-    printf '%s\n' "$arg" |
-        sed "s/'/'\\\\''/g;1s/^/'/;\$s/\$/' \\\\/" |
-        xargs printf %s
-done |
-{
-    IFS= read -r line
-    printf '%s\n' "$line"
-    while IFS= read -r line
-    do
-        printf ' %s\n' "$line"
-    done
-} |
-xargs printf 'exec "$JAVACMD" "$@" '
+exec "$JAVACMD" "$@"
