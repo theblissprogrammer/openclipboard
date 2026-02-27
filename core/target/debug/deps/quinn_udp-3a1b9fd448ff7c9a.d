@@ -1,0 +1,10 @@
+/home/theblissprogrammer/Developer/openclipboard/core/target/debug/deps/quinn_udp-3a1b9fd448ff7c9a.d: /home/theblissprogrammer/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quinn-udp-0.5.14/src/lib.rs /home/theblissprogrammer/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quinn-udp-0.5.14/src/cmsg/mod.rs /home/theblissprogrammer/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quinn-udp-0.5.14/src/cmsg/unix.rs /home/theblissprogrammer/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quinn-udp-0.5.14/src/unix.rs
+
+/home/theblissprogrammer/Developer/openclipboard/core/target/debug/deps/libquinn_udp-3a1b9fd448ff7c9a.rlib: /home/theblissprogrammer/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quinn-udp-0.5.14/src/lib.rs /home/theblissprogrammer/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quinn-udp-0.5.14/src/cmsg/mod.rs /home/theblissprogrammer/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quinn-udp-0.5.14/src/cmsg/unix.rs /home/theblissprogrammer/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quinn-udp-0.5.14/src/unix.rs
+
+/home/theblissprogrammer/Developer/openclipboard/core/target/debug/deps/libquinn_udp-3a1b9fd448ff7c9a.rmeta: /home/theblissprogrammer/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quinn-udp-0.5.14/src/lib.rs /home/theblissprogrammer/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quinn-udp-0.5.14/src/cmsg/mod.rs /home/theblissprogrammer/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quinn-udp-0.5.14/src/cmsg/unix.rs /home/theblissprogrammer/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quinn-udp-0.5.14/src/unix.rs
+
+/home/theblissprogrammer/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quinn-udp-0.5.14/src/lib.rs:
+/home/theblissprogrammer/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quinn-udp-0.5.14/src/cmsg/mod.rs:
+/home/theblissprogrammer/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quinn-udp-0.5.14/src/cmsg/unix.rs:
+/home/theblissprogrammer/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quinn-udp-0.5.14/src/unix.rs:
