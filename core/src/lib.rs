@@ -6,6 +6,7 @@ pub mod transport;
 pub mod discovery;
 pub mod clipboard;
 pub mod session;
+pub mod quic_transport;
 
 pub use protocol::{Frame, MsgType, StreamId, Message, encode_frame, decode_frame, encode_message, decode_message, PROTOCOL_VERSION};
 pub use identity::{IdentityProvider, Blake3Identity, MockIdentity};
