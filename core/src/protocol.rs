@@ -95,11 +95,55 @@ pub fn decode_frame(mut bytes: &[u8]) -> anyhow::Result<Frame> {
     Ok(Frame { version, msg_type, stream_id, seq, payload })
 }
 
+/// Canonical transcript for `Message::Hello` authentication.
+///
+/// Format (byte-oriented, unambiguous):
+///
+/// - prefix: b"openclipboard-hello" (19 bytes)
+/// - version: u8
+/// - peer_id_len: u32 BE, peer_id bytes (UTF-8)
+/// - identity_pk_len: u32 BE, raw pk bytes
+/// - nonce_len: u32 BE, raw nonce bytes
+pub fn hello_transcript(
+    version: u8,
+    peer_id: &str,
+    identity_pk_bytes: &[u8],
+    nonce_bytes: &[u8],
+) -> Vec<u8> {
+    let mut out = Vec::with_capacity(
+        19 + 1 + 4 + peer_id.len() + 4 + identity_pk_bytes.len() + 4 + nonce_bytes.len(),
+    );
+    out.extend_from_slice(b"openclipboard-hello");
+    out.push(version);
+
+    out.extend_from_slice(&(peer_id.len() as u32).to_be_bytes());
+    out.extend_from_slice(peer_id.as_bytes());
+
+    out.extend_from_slice(&(identity_pk_bytes.len() as u32).to_be_bytes());
+    out.extend_from_slice(identity_pk_bytes);
+
+    out.extend_from_slice(&(nonce_bytes.len() as u32).to_be_bytes());
+    out.extend_from_slice(nonce_bytes);
+
+    out
+}
+
 /// Typed application messages.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type")]
 pub enum Message {
-    Hello { peer_id: String, version: u8 },
+    /// Authenticated HELLO: binds peer_id to an Ed25519 public key and proves possession
+    /// via signature over a canonical transcript.
+    Hello {
+        peer_id: String,
+        version: u8,
+        /// Base64 encoded 32-byte Ed25519 verifying key.
+        identity_pk_b64: String,
+        /// Base64 encoded 32-byte random nonce.
+        nonce_b64: String,
+        /// Base64 encoded 64-byte Ed25519 signature over `hello_transcript(...)`.
+        sig_b64: String,
+    },
     Ping { ts_ms: u64 },
     Pong { ts_ms: u64 },
     ClipText { mime: String, text: String, ts_ms: u64 },
@@ -161,7 +205,15 @@ mod tests {
     }
 
     #[test]
-    fn roundtrip_hello() { roundtrip(Message::Hello { peer_id: "abc".into(), version: 0 }); }
+    fn roundtrip_hello() {
+        roundtrip(Message::Hello {
+            peer_id: "abc".into(),
+            version: 0,
+            identity_pk_b64: "AQID".into(),
+            nonce_b64: "BAUG".into(),
+            sig_b64: "BwgJ".into(),
+        });
+    }
     #[test]
     fn roundtrip_ping() { roundtrip(Message::Ping { ts_ms: 123 }); }
     #[test]

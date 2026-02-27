@@ -1,12 +1,13 @@
 //! Session manager: ties identity, transport, clipboard, and trust together.
 
 use crate::clipboard::{ClipboardContent, ClipboardProvider};
-use crate::identity::IdentityProvider;
-use crate::protocol::{Frame, Message};
+use crate::identity::{Ed25519Identity, IdentityProvider};
+use crate::protocol::{hello_transcript, Frame, Message};
 use crate::transport::Connection;
 use crate::trust::TrustStore;
 use anyhow::Result;
 use base64::Engine as _;
+use rand_core::RngCore;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -60,9 +61,22 @@ impl<C: Connection, I: IdentityProvider, CB: ClipboardProvider> Session<C, I, CB
     }
 
     pub async fn send_hello(&self) -> Result<()> {
+        let peer_id = self.identity.peer_id().to_string();
+        let version = crate::protocol::PROTOCOL_VERSION;
+        let identity_pk = self.identity.public_key_bytes();
+
+        let mut nonce = [0u8; 32];
+        rand_core::OsRng.fill_bytes(&mut nonce);
+
+        let transcript = hello_transcript(version, &peer_id, &identity_pk, &nonce);
+        let sig = self.identity.sign(&transcript);
+
         let msg = Message::Hello {
-            peer_id: self.identity.peer_id().to_string(),
-            version: crate::protocol::PROTOCOL_VERSION,
+            peer_id,
+            version,
+            identity_pk_b64: base64::engine::general_purpose::STANDARD.encode(&identity_pk),
+            nonce_b64: base64::engine::general_purpose::STANDARD.encode(&nonce),
+            sig_b64: base64::engine::general_purpose::STANDARD.encode(&sig),
         };
         self.send_message(&msg).await
     }
@@ -78,14 +92,58 @@ impl<C: Connection, I: IdentityProvider, CB: ClipboardProvider> Session<C, I, CB
         let msg: Message = serde_json::from_slice(&frame.payload)?;
 
         match msg {
-            Message::Hello { peer_id, .. } => {
-                // Check trust if trust store is configured and not in pairing mode
+            Message::Hello {
+                peer_id,
+                version,
+                identity_pk_b64,
+                nonce_b64,
+                sig_b64,
+            } => {
+                let identity_pk = base64::engine::general_purpose::STANDARD.decode(&identity_pk_b64)?;
+                let nonce = base64::engine::general_purpose::STANDARD.decode(&nonce_b64)?;
+                let sig = base64::engine::general_purpose::STANDARD.decode(&sig_b64)?;
+
+                if identity_pk.len() != 32 {
+                    self.conn.close();
+                    anyhow::bail!("invalid identity_pk length");
+                }
+                if nonce.len() != 32 {
+                    self.conn.close();
+                    anyhow::bail!("invalid nonce length");
+                }
+                if sig.len() != 64 {
+                    self.conn.close();
+                    anyhow::bail!("invalid signature length");
+                }
+
+                // Self-consistency: peer_id must be derived from the presented public key.
+                let derived = Ed25519Identity::peer_id_from_public_key(&identity_pk);
+                if derived != peer_id {
+                    self.conn.close();
+                    anyhow::bail!("peer_id/public_key mismatch");
+                }
+
+                // Verify proof-of-possession.
+                let transcript = hello_transcript(version, &peer_id, &identity_pk, &nonce);
+                if !Ed25519Identity::verify_with_public_key(&transcript, &sig, &identity_pk) {
+                    self.conn.close();
+                    anyhow::bail!("invalid hello signature");
+                }
+
+                // Check trust if trust store is configured and not in pairing mode.
                 if let Some(ref store) = self.trust_store {
-                    if !self.pairing_mode && !store.is_trusted(&peer_id)? {
-                        self.conn.close();
-                        anyhow::bail!("untrusted peer: {}", peer_id);
+                    if !self.pairing_mode {
+                        let Some(rec) = store.get(&peer_id)? else {
+                            self.conn.close();
+                            anyhow::bail!("untrusted peer: {}", peer_id);
+                        };
+                        if rec.identity_pk != identity_pk {
+                            self.conn.close();
+                            anyhow::bail!("trusted peer public key mismatch: {}", peer_id);
+                        }
                     }
                 }
+
                 Ok(peer_id)
             }
             _ => {
@@ -182,7 +240,7 @@ fn now_ms() -> u64 {
 mod tests {
     use super::*;
     use crate::clipboard::MockClipboard;
-    use crate::identity::MockIdentity;
+    use crate::identity::{Ed25519Identity, MockIdentity};
     use crate::transport::memory_connection_pair;
     use crate::trust::MemoryTrustStore;
 
@@ -205,13 +263,34 @@ mod tests {
     #[tokio::test]
     async fn send_hello() {
         let (conn_a, conn_b) = memory_connection_pair();
-        let session_a = Session::new(conn_a, MockIdentity::new("peer-a"), MockClipboard::new());
+        let id = Ed25519Identity::generate();
+        let expected_peer_id = id.peer_id().to_string();
+        let expected_pk = id.public_key_bytes();
+        let session_a = Session::new(conn_a, id, MockClipboard::new());
 
         session_a.send_hello().await.unwrap();
         let frame = conn_b.recv().await.unwrap();
         let msg: Message = serde_json::from_slice(&frame.payload).unwrap();
         match msg {
-            Message::Hello { peer_id, .. } => assert_eq!(peer_id, "peer-a"),
+            Message::Hello {
+                peer_id,
+                version,
+                identity_pk_b64,
+                nonce_b64,
+                sig_b64,
+            } => {
+                assert_eq!(version, crate::protocol::PROTOCOL_VERSION);
+                assert_eq!(peer_id, expected_peer_id);
+
+                let pk = base64::engine::general_purpose::STANDARD.decode(identity_pk_b64).unwrap();
+                assert_eq!(pk, expected_pk);
+
+                let nonce = base64::engine::general_purpose::STANDARD.decode(nonce_b64).unwrap();
+                assert_eq!(nonce.len(), 32);
+
+                let sig = base64::engine::general_purpose::STANDARD.decode(sig_b64).unwrap();
+                assert_eq!(sig.len(), 64);
+            }
             _ => panic!("expected Hello"),
         }
     }
@@ -223,81 +302,204 @@ mod tests {
         session_a.send_clipboard().await.unwrap();
     }
 
-    #[tokio::test]
-    async fn handshake_trusted_peer() {
-        let (conn_a, conn_b) = memory_connection_pair();
-        let trust = Arc::new(MemoryTrustStore::new());
-        trust
-            .save(crate::trust::TrustRecord {
-                peer_id: "peer-b".into(),
-                identity_pk: vec![],
-                display_name: "B".into(),
-                created_at: chrono::Utc::now(),
-            })
-            .unwrap();
-
-        let trust2 = Arc::new(MemoryTrustStore::new());
-        trust2
-            .save(crate::trust::TrustRecord {
-                peer_id: "peer-a".into(),
-                identity_pk: vec![],
-                display_name: "A".into(),
-                created_at: chrono::Utc::now(),
-            })
-            .unwrap();
-
-        let session_a = Session::with_trust(conn_a, MockIdentity::new("peer-a"), MockClipboard::new(), trust);
-        let session_b = Session::with_trust(conn_b, MockIdentity::new("peer-b"), MockClipboard::new(), trust2);
-
-        let (result_a, result_b) = tokio::join!(session_a.handshake(), session_b.handshake());
-        assert_eq!(result_a.unwrap(), "peer-b");
-        assert_eq!(result_b.unwrap(), "peer-a");
-    }
-
-    #[tokio::test]
-    async fn handshake_untrusted_peer_rejected() {
-        let (conn_a, conn_b) = memory_connection_pair();
-        let trust = Arc::new(MemoryTrustStore::new());
-        // Don't add peer-b to trust store
-
-        let session_a = Session::with_trust(conn_a, MockIdentity::new("peer-a"), MockClipboard::new(), trust);
-        let session_b = Session::new(conn_b, MockIdentity::new("peer-b"), MockClipboard::new());
-
-        // B sends hello first so A can receive it
-        session_b.send_hello().await.unwrap();
-        // A sends hello
-        session_a.send_hello().await.unwrap();
-
-        // A receives B's hello - should reject
-        let frame = session_a.conn.recv().await.unwrap();
-        let msg: Message = serde_json::from_slice(&frame.payload).unwrap();
-        match msg {
-            Message::Hello { peer_id, .. } => {
-                // Manually check trust
-                assert!(!session_a.trust_store.as_ref().unwrap().is_trusted(&peer_id).unwrap());
-            }
-            _ => panic!("expected Hello"),
+    fn make_signed_hello(
+        signing_identity: &Ed25519Identity,
+        claimed_peer_id: String,
+        presented_pk: Vec<u8>,
+        nonce: [u8; 32],
+        sig_override: Option<Vec<u8>>,
+    ) -> Message {
+        let version = crate::protocol::PROTOCOL_VERSION;
+        let transcript = hello_transcript(version, &claimed_peer_id, &presented_pk, &nonce);
+        let sig = sig_override.unwrap_or_else(|| signing_identity.sign(&transcript));
+        Message::Hello {
+            peer_id: claimed_peer_id,
+            version,
+            identity_pk_b64: base64::engine::general_purpose::STANDARD.encode(&presented_pk),
+            nonce_b64: base64::engine::general_purpose::STANDARD.encode(nonce),
+            sig_b64: base64::engine::general_purpose::STANDARD.encode(&sig),
         }
     }
 
     #[tokio::test]
-    async fn handshake_pairing_mode_allows_untrusted() {
+    async fn handshake_accept_trusted_peer_with_pinned_key() {
         let (conn_a, conn_b) = memory_connection_pair();
-        let trust = Arc::new(MemoryTrustStore::new());
-        // Empty trust store but pairing mode
 
-        let session_a = Session::with_pairing_mode(conn_a, MockIdentity::new("peer-a"), MockClipboard::new(), trust);
-        let session_b = Session::new(conn_b, MockIdentity::new("peer-b"), MockClipboard::new());
+        let alice = Ed25519Identity::generate();
+        let bob = Ed25519Identity::generate();
 
-        // Run handshake concurrently
+        let trust_a = Arc::new(MemoryTrustStore::new());
+        trust_a
+            .save(crate::trust::TrustRecord {
+                peer_id: bob.peer_id().to_string(),
+                identity_pk: bob.public_key_bytes(),
+                display_name: "Bob".into(),
+                created_at: chrono::Utc::now(),
+            })
+            .unwrap();
+
+        let trust_b = Arc::new(MemoryTrustStore::new());
+        trust_b
+            .save(crate::trust::TrustRecord {
+                peer_id: alice.peer_id().to_string(),
+                identity_pk: alice.public_key_bytes(),
+                display_name: "Alice".into(),
+                created_at: chrono::Utc::now(),
+            })
+            .unwrap();
+
+        let session_a = Session::with_trust(conn_a, alice, MockClipboard::new(), trust_a);
+        let session_b = Session::with_trust(conn_b, bob, MockClipboard::new(), trust_b);
+
+        let (result_a, result_b) = tokio::join!(session_a.handshake(), session_b.handshake());
+        assert_eq!(result_a.unwrap(), session_b.identity.peer_id());
+        assert_eq!(result_b.unwrap(), session_a.identity.peer_id());
+    }
+
+    #[tokio::test]
+    async fn handshake_reject_spoofed_peer_id_with_different_public_key() {
+        let (conn_a, conn_b) = memory_connection_pair();
+
+        let alice = Ed25519Identity::generate();
+        let victim = Ed25519Identity::generate();
+        let attacker = Ed25519Identity::generate();
+
+        // Alice trusts the victim's peer_id *and* public key.
+        let trust_a = Arc::new(MemoryTrustStore::new());
+        trust_a
+            .save(crate::trust::TrustRecord {
+                peer_id: victim.peer_id().to_string(),
+                identity_pk: victim.public_key_bytes(),
+                display_name: "Victim".into(),
+                created_at: chrono::Utc::now(),
+            })
+            .unwrap();
+
+        let session_a = Session::with_trust(conn_a, alice, MockClipboard::new(), trust_a);
+
+        // Attacker sends a HELLO claiming victim's peer_id but presenting attacker's pk.
+        let spoof_msg = make_signed_hello(
+            &attacker,
+            victim.peer_id().to_string(),
+            attacker.public_key_bytes(),
+            [9u8; 32],
+            None,
+        );
+
         let handle = tokio::spawn(async move {
-            session_b.send_hello().await.unwrap();
-            session_b.recv_message().await.unwrap();
+            // Read Alice's hello.
+            let _ = conn_b.recv().await.unwrap();
+            // Send spoofed hello.
+            let payload = serde_json::to_vec(&spoof_msg).unwrap();
+            let frame = Frame::new(spoof_msg.msg_type(), spoof_msg.stream_id(), 1, payload);
+            conn_b.send(frame).await.unwrap();
         });
 
-        let result = session_a.handshake().await;
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "peer-b");
+        let res = session_a.handshake().await;
+        assert!(res.is_err());
+        handle.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn handshake_reject_bad_signature() {
+        let (conn_a, conn_b) = memory_connection_pair();
+
+        let alice = Ed25519Identity::generate();
+        let bob = Ed25519Identity::generate();
+
+        let trust_a = Arc::new(MemoryTrustStore::new());
+        trust_a
+            .save(crate::trust::TrustRecord {
+                peer_id: bob.peer_id().to_string(),
+                identity_pk: bob.public_key_bytes(),
+                display_name: "Bob".into(),
+                created_at: chrono::Utc::now(),
+            })
+            .unwrap();
+
+        let session_a = Session::with_trust(conn_a, alice, MockClipboard::new(), trust_a);
+
+        // Correct peer_id + pk, but invalid signature.
+        let bad_sig_msg = make_signed_hello(
+            &bob,
+            bob.peer_id().to_string(),
+            bob.public_key_bytes(),
+            [1u8; 32],
+            Some(vec![0u8; 64]),
+        );
+
+        let handle = tokio::spawn(async move {
+            let _ = conn_b.recv().await.unwrap();
+            let payload = serde_json::to_vec(&bad_sig_msg).unwrap();
+            let frame = Frame::new(bad_sig_msg.msg_type(), bad_sig_msg.stream_id(), 1, payload);
+            conn_b.send(frame).await.unwrap();
+        });
+
+        let res = session_a.handshake().await;
+        assert!(res.is_err());
+        handle.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn handshake_reject_untrusted_peer_when_not_pairing() {
+        let (conn_a, conn_b) = memory_connection_pair();
+
+        let alice = Ed25519Identity::generate();
+        let bob = Ed25519Identity::generate();
+
+        let trust_a = Arc::new(MemoryTrustStore::new());
+        // Bob is not in Alice's trust store.
+
+        let session_a = Session::with_trust(conn_a, alice, MockClipboard::new(), trust_a);
+
+        let bob_hello = make_signed_hello(
+            &bob,
+            bob.peer_id().to_string(),
+            bob.public_key_bytes(),
+            [2u8; 32],
+            None,
+        );
+
+        let handle = tokio::spawn(async move {
+            let _ = conn_b.recv().await.unwrap();
+            let payload = serde_json::to_vec(&bob_hello).unwrap();
+            let frame = Frame::new(bob_hello.msg_type(), bob_hello.stream_id(), 1, payload);
+            conn_b.send(frame).await.unwrap();
+        });
+
+        let res = session_a.handshake().await;
+        assert!(res.is_err());
+        handle.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn handshake_pairing_mode_accepts_unknown_peer_with_valid_hello() {
+        let (conn_a, conn_b) = memory_connection_pair();
+
+        let alice = Ed25519Identity::generate();
+        let bob = Ed25519Identity::generate();
+
+        let trust_a = Arc::new(MemoryTrustStore::new());
+        let session_a = Session::with_pairing_mode(conn_a, alice, MockClipboard::new(), trust_a);
+
+        let bob_hello = make_signed_hello(
+            &bob,
+            bob.peer_id().to_string(),
+            bob.public_key_bytes(),
+            [3u8; 32],
+            None,
+        );
+
+        let handle = tokio::spawn(async move {
+            let _ = conn_b.recv().await.unwrap();
+            let payload = serde_json::to_vec(&bob_hello).unwrap();
+            let frame = Frame::new(bob_hello.msg_type(), bob_hello.stream_id(), 1, payload);
+            conn_b.send(frame).await.unwrap();
+        });
+
+        let res = session_a.handshake().await;
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), bob.peer_id());
         handle.await.unwrap();
     }
 }
