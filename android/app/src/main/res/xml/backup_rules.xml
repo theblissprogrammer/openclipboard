@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- Exclude identity and trust store files from backup for security -->
+    <exclude domain="file" path="identity.json" />
+    <exclude domain="file" path="trust.json" />
+</full-backup-content>

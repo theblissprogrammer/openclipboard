@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup>
+        <!-- Exclude identity and trust store files from cloud backup for security -->
+        <exclude domain="file" path="identity.json" />
+        <exclude domain="file" path="trust.json" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="identity.json" />
+        <exclude domain="file" path="trust.json" />
+    </device-transfer>
+</data-extraction-rules>

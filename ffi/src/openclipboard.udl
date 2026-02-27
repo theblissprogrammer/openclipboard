@@ -19,6 +19,8 @@ namespace openclipboard {
 
   [Throws=OpenClipboardError] TrustStore trust_store_open(string path);
   string trust_store_default_path();
+
+  [Throws=OpenClipboardError] ClipboardNode clipboard_node_new(string identity_path, string trust_path);
 };
 
 [Error]
@@ -59,4 +61,20 @@ interface TrustStore {
   [Throws=OpenClipboardError] TrustRecord? get(string peer_id);
   [Throws=OpenClipboardError] sequence<TrustRecord> list();
   [Throws=OpenClipboardError] boolean remove(string peer_id);
+};
+
+callback interface EventHandler {
+  void on_clipboard_text(string peer_id, string text, u64 ts_ms);
+  void on_file_received(string peer_id, string name, string data_path);
+  void on_peer_connected(string peer_id);
+  void on_peer_disconnected(string peer_id);
+  void on_error(string message);
+};
+
+interface ClipboardNode {
+  string peer_id();
+  [Throws=OpenClipboardError] void start_listener(u16 port, EventHandler handler);
+  [Throws=OpenClipboardError] void connect_and_send_text(string addr, string text);
+  [Throws=OpenClipboardError] void connect_and_send_file(string addr, string file_path);
+  void stop();
 };
