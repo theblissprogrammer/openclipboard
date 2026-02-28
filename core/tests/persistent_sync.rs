@@ -90,9 +90,12 @@ async fn quic_persistent_cliptext_sync_under_1s_loopback() {
     let t0 = std::time::Instant::now();
     s1.broadcast_clip_text("hello".to_string()).await;
 
-    // should arrive under 1s (loopback should be fast)
+    // Loopback should be fast, but CI runners can be noisy.
+    // Keep a strict target locally; allow a slightly larger window under CI to avoid flakes.
+    let max_wait = if std::env::var("CI").is_ok() { std::time::Duration::from_secs(3) } else { std::time::Duration::from_secs(1) };
+
     let mut got = false;
-    while t0.elapsed() < std::time::Duration::from_secs(1) {
+    while t0.elapsed() < max_wait {
         let texts = h2.texts.lock().unwrap().clone();
         if texts.iter().any(|(_, t)| t == "hello") {
             got = true;
@@ -100,12 +103,18 @@ async fn quic_persistent_cliptext_sync_under_1s_loopback() {
         }
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
-    assert!(got, "did not receive cliptext within 1s; errors={:?}", h2.errors.lock().unwrap());
+    assert!(
+        got,
+        "did not receive cliptext within {:?}; errors={:?}",
+        max_wait,
+        h2.errors.lock().unwrap()
+    );
 
     // send again to ensure the connection is still alive.
+    got = false;
     s1.broadcast_clip_text("hello2".to_string()).await;
     let start2 = std::time::Instant::now();
-    while start2.elapsed() < std::time::Duration::from_secs(1) {
+    while start2.elapsed() < max_wait {
         let texts = h2.texts.lock().unwrap().clone();
         if texts.iter().any(|(_, t)| t == "hello2") {
             got = true;

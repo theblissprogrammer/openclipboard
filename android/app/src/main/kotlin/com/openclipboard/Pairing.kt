@@ -2,7 +2,7 @@ package com.openclipboard
 
 import android.util.Base64
 import uniffi.openclipboard.PairingPayload
-import uniffi.openclipboard.OpenClipboardError
+import uniffi.openclipboard.OpenClipboardException
 import uniffi.openclipboard.pairingPayloadCreate
 import uniffi.openclipboard.pairingPayloadFromQrString
 import uniffi.openclipboard.deriveConfirmationCode
@@ -57,7 +57,7 @@ object Pairing {
         val resp: PairingPayload,
     )
 
-    @Throws(OpenClipboardError::class)
+    @Throws(OpenClipboardException::class)
     fun respondToInit(
         initQr: String,
         myPeerId: String,
@@ -89,7 +89,7 @@ object Pairing {
         val resp: PairingPayload,
     )
 
-    @Throws(OpenClipboardError::class)
+    @Throws(OpenClipboardException::class)
     fun finalize(initQr: String, respQr: String): FinalizeResult {
         val init = pairingPayloadFromQrString(initQr)
         val resp = pairingPayloadFromQrString(respQr)
