@@ -95,21 +95,24 @@ fun MainScreen() {
 fun HomeScreen() {
     val context = LocalContext.current
 
-    var targetAddr by remember { mutableStateOf("192.168.1.10:18455") }
-
     val peerId = OpenClipboardAppState.peerId.value
     val port = OpenClipboardAppState.listeningPort.value
     val connectedCount = OpenClipboardAppState.connectedPeers.size
+
+    // Snapshot lists (avoid recomposition thrash on background callback updates).
+    val nearby = OpenClipboardAppState.nearbyPeers.toList()
+    val trusted = OpenClipboardAppState.trustedPeers.toList()
     val activity = OpenClipboardAppState.recentActivity.toList()
+
+    var showPairDialog by remember { mutableStateOf(false) }
+    var pairTarget by remember { mutableStateOf<NearbyPeerRecord?>(null) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(
                 modifier = Modifier.padding(16.dp),
@@ -122,23 +125,68 @@ fun HomeScreen() {
             }
         }
 
-        OutlinedTextField(
-            value = targetAddr,
-            onValueChange = { targetAddr = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Target (ip:port)") },
-            singleLine = true,
-        )
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Nearby Devices", style = MaterialTheme.typography.headlineSmall)
+                    TextButton(onClick = { OpenClipboardAppState.refreshTrustedPeers(context) }) {
+                        Text("Refresh")
+                    }
+                }
 
-        Button(
-            onClick = {
-                OpenClipboardAppState.sendClipboardTextTo(targetAddr.trim(), context)
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Icon(Icons.Default.Send, contentDescription = null)
-            Spacer(Modifier.width(8.dp))
-            Text("Send Clipboard Text")
+                if (nearby.isEmpty()) {
+                    Text("No devices found yet.")
+                } else {
+                    LazyColumn(modifier = Modifier.heightIn(max = 220.dp)) {
+                        items(nearby) { p ->
+                            NearbyPeerItem(
+                                peer = p,
+                                onPair = {
+                                    pairTarget = p
+                                    showPairDialog = true
+                                },
+                                onSend = {
+                                    OpenClipboardAppState.sendClipboardTextTo(p.addr, context)
+                                }
+                            )
+                            Divider()
+                        }
+                    }
+                }
+            }
+        }
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("Paired Devices", style = MaterialTheme.typography.headlineSmall)
+                Spacer(Modifier.height(8.dp))
+
+                if (trusted.isEmpty()) {
+                    Text("No paired devices yet.")
+                } else {
+                    LazyColumn(modifier = Modifier.heightIn(max = 160.dp)) {
+                        items(trusted) { peer ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(peer.name, fontWeight = FontWeight.Medium)
+                                    Text(peer.peerId, style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                            Divider()
+                        }
+                    }
+                }
+            }
         }
 
         Card(modifier = Modifier.fillMaxWidth()) {
@@ -154,6 +202,22 @@ fun HomeScreen() {
                 }
             }
         }
+    }
+
+    if (showPairDialog) {
+        PairDialog(
+            context = context,
+            defaultPeerName = pairTarget?.name,
+            onDismiss = {
+                showPairDialog = false
+                pairTarget = null
+            },
+            onPaired = {
+                OpenClipboardAppState.refreshTrustedPeers(context)
+                showPairDialog = false
+                pairTarget = null
+            }
+        )
     }
 }
 
@@ -256,6 +320,259 @@ fun PeerItem(peer: TrustedPeerRecord) {
             Text("Remove", color = MaterialTheme.colorScheme.error)
         }
     }
+}
+
+@Composable
+fun NearbyPeerItem(
+    peer: NearbyPeerRecord,
+    onPair: () -> Unit,
+    onSend: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(peer.name.ifBlank { "(unknown)" }, fontWeight = FontWeight.Medium)
+            Text(peer.peerId, style = MaterialTheme.typography.bodySmall)
+            Text(peer.addr, style = MaterialTheme.typography.bodySmall)
+        }
+
+        if (peer.isTrusted) {
+            TextButton(onClick = onSend) {
+                Text("Send")
+            }
+        } else {
+            TextButton(onClick = onPair) {
+                Text("Pair")
+            }
+        }
+    }
+}
+
+private enum class PairRole { Initiator, Responder }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PairDialog(
+    context: android.content.Context,
+    defaultPeerName: String?,
+    onDismiss: () -> Unit,
+    onPaired: () -> Unit,
+) {
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+
+    var role by remember { mutableStateOf<PairRole?>(null) }
+
+    // Initiator state
+    var initQr by remember { mutableStateOf<String?>(null) }
+    var respQrInput by remember { mutableStateOf("") }
+    var initCode by remember { mutableStateOf<String?>(null) }
+    var initRemote by remember { mutableStateOf<Pairing.FinalizeResult?>(null) }
+
+    // Responder state
+    var initQrInput by remember { mutableStateOf("") }
+    var respQr by remember { mutableStateOf<String?>(null) }
+    var respCode by remember { mutableStateOf<String?>(null) }
+    var respRemoteInit by remember { mutableStateOf<uniffi.openclipboard.PairingPayload?>(null) }
+
+    // Errors
+    var error by remember { mutableStateOf<String?>(null) }
+
+    fun myIdentityInfo(): Pair<String, String> {
+        val idPath = OpenClipboardAppState.identityPath(context)
+        val id = uniffi.openclipboard.identityLoad(idPath)
+        return id.peerId() to id.pubkeyB64()
+    }
+
+    fun ubytesToBytes(xs: List<UByte>): ByteArray = ByteArray(xs.size) { i -> xs[i].toByte() }
+
+    fun addTrust(peerId: String, name: String, identityPkB64: String) {
+        val store = uniffi.openclipboard.trustStoreOpen(OpenClipboardAppState.trustStorePath(context))
+        store.add(peerId, identityPkB64, name.ifBlank { peerId })
+        OpenClipboardAppState.addActivity("Paired with $peerId", peerId)
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Pair Device") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (defaultPeerName != null) {
+                    Text("Nearby: $defaultPeerName")
+                }
+
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+
+                if (role == null) {
+                    Text("Choose a role for this pairing.")
+                }
+
+                if (role == PairRole.Initiator) {
+                    if (initQr == null) {
+                        Text("Step 1: Generate init string and send it to the other device.")
+                    } else {
+                        Text("Step 1: Copy init string to share")
+                        OutlinedTextField(
+                            value = initQr ?: "",
+                            onValueChange = {},
+                            readOnly = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Init QR string") }
+                        )
+                        TextButton(onClick = {
+                            clipboard.setText(androidx.compose.ui.text.AnnotatedString(initQr ?: ""))
+                        }) { Text("Copy") }
+
+                        Spacer(Modifier.height(8.dp))
+                        Text("Step 2: Paste response string from the other device")
+                        OutlinedTextField(
+                            value = respQrInput,
+                            onValueChange = { respQrInput = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Response QR string") },
+                        )
+
+                        initCode?.let { code ->
+                            Text("Confirmation code: $code", fontWeight = FontWeight.Medium)
+                            Text("Confirm the code matches on the other device, then tap Confirm.")
+                        }
+                    }
+                }
+
+                if (role == PairRole.Responder) {
+                    if (respQr == null) {
+                        Text("Step 1: Paste init string from the other device")
+                        OutlinedTextField(
+                            value = initQrInput,
+                            onValueChange = { initQrInput = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Init QR string") },
+                        )
+                    } else {
+                        Text("Step 2: Send this response string back")
+                        OutlinedTextField(
+                            value = respQr ?: "",
+                            onValueChange = {},
+                            readOnly = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Response QR string") }
+                        )
+                        TextButton(onClick = {
+                            clipboard.setText(androidx.compose.ui.text.AnnotatedString(respQr ?: ""))
+                        }) { Text("Copy") }
+
+                        respCode?.let { code ->
+                            Text("Confirmation code: $code", fontWeight = FontWeight.Medium)
+                            Text("Confirm the code matches on the initiator, then tap Confirm.")
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            when (role) {
+                null -> {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = {
+                            role = PairRole.Initiator
+                            error = null
+                            try {
+                                val (myPeerId, myPk) = myIdentityInfo()
+                                val init = Pairing.createInitPayload(
+                                    myPeerId = myPeerId,
+                                    myName = "Android ${android.os.Build.MODEL}".trim(),
+                                    myIdentityPkB64 = myPk,
+                                    myLanPort = OpenClipboardAppState.listeningPort.value,
+                                )
+                                initQr = init.initQr
+                            } catch (e: Exception) {
+                                error = e.message
+                            }
+                        }) { Text("Initiate") }
+
+                        TextButton(onClick = {
+                            role = PairRole.Responder
+                            error = null
+                        }) { Text("Respond") }
+                    }
+                }
+
+                PairRole.Initiator -> {
+                    if (initCode == null) {
+                        TextButton(onClick = {
+                            error = null
+                            try {
+                                val fin = Pairing.finalize(initQr ?: "", respQrInput.trim())
+                                initRemote = fin
+                                initCode = fin.confirmationCode
+                            } catch (e: Exception) {
+                                error = e.message
+                            }
+                        }) { Text("Derive Code") }
+                    } else {
+                        TextButton(onClick = {
+                            error = null
+                            try {
+                                val fin = initRemote ?: return@TextButton
+                                val resp = fin.resp
+                                val remotePeerId = resp.peerId()
+                                val remoteName = resp.name()
+                                val remotePkB64 = Pairing.pkB64FromBytes(ubytesToBytes(resp.identityPk()))
+                                addTrust(remotePeerId, remoteName, remotePkB64)
+                                onPaired()
+                            } catch (e: Exception) {
+                                error = e.message
+                            }
+                        }) { Text("Confirm") }
+                    }
+                }
+
+                PairRole.Responder -> {
+                    if (respQr == null) {
+                        TextButton(onClick = {
+                            error = null
+                            try {
+                                val (myPeerId, myPk) = myIdentityInfo()
+                                val res = Pairing.respondToInit(
+                                    initQr = initQrInput.trim(),
+                                    myPeerId = myPeerId,
+                                    myName = "Android ${android.os.Build.MODEL}".trim(),
+                                    myIdentityPkB64 = myPk,
+                                    myLanPort = OpenClipboardAppState.listeningPort.value,
+                                )
+                                respQr = res.respQr
+                                respCode = res.confirmationCode
+                                respRemoteInit = res.init
+                            } catch (e: Exception) {
+                                error = e.message
+                            }
+                        }) { Text("Generate") }
+                    } else {
+                        TextButton(onClick = {
+                            error = null
+                            try {
+                                val init = respRemoteInit ?: return@TextButton
+                                val remotePeerId = init.peerId()
+                                val remoteName = init.name()
+                                val remotePkB64 = Pairing.pkB64FromBytes(ubytesToBytes(init.identityPk()))
+                                addTrust(remotePeerId, remoteName, remotePkB64)
+                                onPaired()
+                            } catch (e: Exception) {
+                                error = e.message
+                            }
+                        }) { Text("Confirm") }
+                    }
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Close") }
+        }
+    )
 }
 
 data class ActivityRecord(

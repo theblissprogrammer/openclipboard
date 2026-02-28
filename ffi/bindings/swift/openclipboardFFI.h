@@ -251,6 +251,20 @@ typedef void (*UniffiForeignFutureCompleteVoid)(uint64_t, UniffiForeignFutureStr
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_DISCOVERY_HANDLER_METHOD0
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_DISCOVERY_HANDLER_METHOD0
+typedef void (*UniffiCallbackInterfaceDiscoveryHandlerMethod0)(uint64_t, RustBuffer, RustBuffer, RustBuffer, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_DISCOVERY_HANDLER_METHOD1
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_DISCOVERY_HANDLER_METHOD1
+typedef void (*UniffiCallbackInterfaceDiscoveryHandlerMethod1)(uint64_t, RustBuffer, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
 #ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_EVENT_HANDLER_METHOD0
 #define UNIFFI_FFIDEF_CALLBACK_INTERFACE_EVENT_HANDLER_METHOD0
 typedef void (*UniffiCallbackInterfaceEventHandlerMethod0)(uint64_t, RustBuffer, RustBuffer, uint64_t, void* _Nonnull, 
@@ -284,6 +298,15 @@ typedef void (*UniffiCallbackInterfaceEventHandlerMethod3)(uint64_t, RustBuffer,
 typedef void (*UniffiCallbackInterfaceEventHandlerMethod4)(uint64_t, RustBuffer, void* _Nonnull, 
         RustCallStatus *_Nonnull uniffiCallStatus
     );
+
+#endif
+#ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_DISCOVERY_HANDLER
+#define UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_DISCOVERY_HANDLER
+typedef struct UniffiVTableCallbackInterfaceDiscoveryHandler {
+    UniffiCallbackInterfaceDiscoveryHandlerMethod0 _Nonnull onPeerDiscovered;
+    UniffiCallbackInterfaceDiscoveryHandlerMethod1 _Nonnull onPeerLost;
+    UniffiCallbackInterfaceFree _Nonnull uniffiFree;
+} UniffiVTableCallbackInterfaceDiscoveryHandler;
 
 #endif
 #ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_EVENT_HANDLER
@@ -323,6 +346,11 @@ void uniffi_openclipboard_ffi_fn_method_clipboardnode_connect_and_send_text(void
 RustBuffer uniffi_openclipboard_ffi_fn_method_clipboardnode_peer_id(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_FN_METHOD_CLIPBOARDNODE_START_DISCOVERY
+#define UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_FN_METHOD_CLIPBOARDNODE_START_DISCOVERY
+void uniffi_openclipboard_ffi_fn_method_clipboardnode_start_discovery(void*_Nonnull ptr, RustBuffer device_name, uint64_t handler, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_FN_METHOD_CLIPBOARDNODE_START_LISTENER
 #define UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_FN_METHOD_CLIPBOARDNODE_START_LISTENER
 void uniffi_openclipboard_ffi_fn_method_clipboardnode_start_listener(void*_Nonnull ptr, uint16_t port, uint64_t handler, RustCallStatus *_Nonnull out_status
@@ -331,6 +359,11 @@ void uniffi_openclipboard_ffi_fn_method_clipboardnode_start_listener(void*_Nonnu
 #ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_FN_METHOD_CLIPBOARDNODE_STOP
 #define UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_FN_METHOD_CLIPBOARDNODE_STOP
 void uniffi_openclipboard_ffi_fn_method_clipboardnode_stop(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_FN_METHOD_CLIPBOARDNODE_STOP_DISCOVERY
+#define UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_FN_METHOD_CLIPBOARDNODE_STOP_DISCOVERY
+void uniffi_openclipboard_ffi_fn_method_clipboardnode_stop_discovery(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_FN_CLONE_IDENTITY
@@ -436,6 +469,11 @@ RustBuffer uniffi_openclipboard_ffi_fn_method_truststore_list(void*_Nonnull ptr,
 #ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_FN_METHOD_TRUSTSTORE_REMOVE
 #define UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_FN_METHOD_TRUSTSTORE_REMOVE
 int8_t uniffi_openclipboard_ffi_fn_method_truststore_remove(void*_Nonnull ptr, RustBuffer peer_id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_FN_INIT_CALLBACK_VTABLE_DISCOVERYHANDLER
+#define UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_FN_INIT_CALLBACK_VTABLE_DISCOVERYHANDLER
+void uniffi_openclipboard_ffi_fn_init_callback_vtable_discoveryhandler(const UniffiVTableCallbackInterfaceDiscoveryHandler* _Nonnull vtable
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_FN_INIT_CALLBACK_VTABLE_EVENTHANDLER
@@ -843,6 +881,12 @@ uint16_t uniffi_openclipboard_ffi_checksum_method_clipboardnode_peer_id(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_CHECKSUM_METHOD_CLIPBOARDNODE_START_DISCOVERY
+#define UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_CHECKSUM_METHOD_CLIPBOARDNODE_START_DISCOVERY
+uint16_t uniffi_openclipboard_ffi_checksum_method_clipboardnode_start_discovery(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_CHECKSUM_METHOD_CLIPBOARDNODE_START_LISTENER
 #define UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_CHECKSUM_METHOD_CLIPBOARDNODE_START_LISTENER
 uint16_t uniffi_openclipboard_ffi_checksum_method_clipboardnode_start_listener(void
@@ -852,6 +896,12 @@ uint16_t uniffi_openclipboard_ffi_checksum_method_clipboardnode_start_listener(v
 #ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_CHECKSUM_METHOD_CLIPBOARDNODE_STOP
 #define UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_CHECKSUM_METHOD_CLIPBOARDNODE_STOP
 uint16_t uniffi_openclipboard_ffi_checksum_method_clipboardnode_stop(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_CHECKSUM_METHOD_CLIPBOARDNODE_STOP_DISCOVERY
+#define UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_CHECKSUM_METHOD_CLIPBOARDNODE_STOP_DISCOVERY
+uint16_t uniffi_openclipboard_ffi_checksum_method_clipboardnode_stop_discovery(void
     
 );
 #endif
@@ -942,6 +992,18 @@ uint16_t uniffi_openclipboard_ffi_checksum_method_truststore_list(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_CHECKSUM_METHOD_TRUSTSTORE_REMOVE
 #define UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_CHECKSUM_METHOD_TRUSTSTORE_REMOVE
 uint16_t uniffi_openclipboard_ffi_checksum_method_truststore_remove(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_CHECKSUM_METHOD_DISCOVERYHANDLER_ON_PEER_DISCOVERED
+#define UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_CHECKSUM_METHOD_DISCOVERYHANDLER_ON_PEER_DISCOVERED
+uint16_t uniffi_openclipboard_ffi_checksum_method_discoveryhandler_on_peer_discovered(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_CHECKSUM_METHOD_DISCOVERYHANDLER_ON_PEER_LOST
+#define UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_CHECKSUM_METHOD_DISCOVERYHANDLER_ON_PEER_LOST
+uint16_t uniffi_openclipboard_ffi_checksum_method_discoveryhandler_on_peer_lost(void
     
 );
 #endif

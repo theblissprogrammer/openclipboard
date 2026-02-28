@@ -18,7 +18,17 @@ object OpenClipboardAppState {
     val connectedPeers = mutableStateListOf<String>()
     val recentActivity = mutableStateListOf<ActivityRecord>()
 
+    // Nearby (mDNS) discovery
+    val nearbyPeers = mutableStateListOf<NearbyPeerRecord>()
+
+    // Paired/trusted peers (TrustStore)
+    val trustedPeers = mutableStateListOf<TrustedPeerRecord>()
+
     private var node: uniffi.openclipboard.ClipboardNode? = null
+
+    // Compose state is not thread-safe; Discovery callbacks happen on a Rust runtime thread.
+    // Marshal list updates onto the main thread.
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
     fun init(context: Context) {
         if (node != null) return
@@ -30,6 +40,8 @@ object OpenClipboardAppState {
             val n = clipboardNodeNew(identityPath, trustPath)
             node = n
             peerId.value = n.peerId()
+
+            refreshTrustedPeers(context)
 
             n.startListener(listeningPort.value.toUShort(), object : EventHandler {
                 override fun onClipboardText(peerId: String, text: String, tsMs: ULong) {
@@ -60,15 +72,62 @@ object OpenClipboardAppState {
                     addActivity("Error: $message", "")
                 }
             })
+
+            // Start LAN discovery (Phase 2).
+            startDiscovery(context)
         } catch (e: Exception) {
             addActivity("Init failed: ${e.message}", "")
         }
     }
 
     fun stop() {
+        // Rust-side stop() stops listener + discovery.
         node?.stop()
         node = null
         connectedPeers.clear()
+        nearbyPeers.clear()
+        trustedPeers.clear()
+    }
+
+    fun startDiscovery(context: Context) {
+        val n = node ?: return
+
+        val deviceName = "Android ${android.os.Build.MODEL}".trim()
+        try {
+            n.startDiscovery(deviceName, object : uniffi.openclipboard.DiscoveryHandler {
+                override fun onPeerDiscovered(peerId: String, name: String, addr: String) {
+                    mainHandler.post {
+                        val existingIndex = nearbyPeers.indexOfFirst { it.peerId == peerId }
+                        val isTrusted = trustedPeers.any { it.peerId == peerId }
+                        val rec = NearbyPeerRecord(peerId = peerId, name = name, addr = addr, isTrusted = isTrusted)
+
+                        if (existingIndex >= 0) nearbyPeers[existingIndex] = rec else nearbyPeers.add(rec)
+                    }
+                }
+
+                override fun onPeerLost(peerId: String) {
+                    mainHandler.post {
+                        nearbyPeers.removeAll { it.peerId == peerId }
+                    }
+                }
+            })
+        } catch (e: Exception) {
+            addActivity("Discovery failed: ${e.message}", "")
+        }
+    }
+
+    fun refreshTrustedPeers(context: Context) {
+        trustedPeers.clear()
+        trustedPeers.addAll(listTrustedPeers(context))
+
+        // Update nearby trust flags.
+        val trusted = trustedPeers.map { it.peerId }.toSet()
+        for (i in nearbyPeers.indices) {
+            val p = nearbyPeers[i]
+            if (p.isTrusted != trusted.contains(p.peerId)) {
+                nearbyPeers[i] = p.copy(isTrusted = trusted.contains(p.peerId))
+            }
+        }
     }
 
     fun sendClipboardTextTo(addr: String, context: Context) {
@@ -95,7 +154,11 @@ object OpenClipboardAppState {
         }
     }
 
-    private fun addActivity(desc: String, peer: String) {
+    fun trustStorePath(context: Context): String = File(context.filesDir, "trust.json").absolutePath
+
+    fun identityPath(context: Context): String = File(context.filesDir, "identity.json").absolutePath
+
+    fun addActivity(desc: String, peer: String) {
         // keep it small
         recentActivity.add(0, ActivityRecord(desc, peer, ""))
         while (recentActivity.size > 50) {
@@ -103,3 +166,10 @@ object OpenClipboardAppState {
         }
     }
 }
+
+data class NearbyPeerRecord(
+    val peerId: String,
+    val name: String,
+    val addr: String,
+    val isTrusted: Boolean,
+)

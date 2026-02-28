@@ -1,5 +1,6 @@
 import Cocoa
 import SwiftUI
+import Security
 import OpenClipboardBindings
 
 @main
@@ -49,6 +50,27 @@ final class MacEventHandler: EventHandler {
     }
 }
 
+final class MacDiscoveryHandler: DiscoveryHandler {
+    private let onEvent: @Sendable (Event) -> Void
+
+    enum Event {
+        case peerDiscovered(peerId: String, name: String, addr: String)
+        case peerLost(peerId: String)
+    }
+
+    init(onEvent: @escaping @Sendable (Event) -> Void) {
+        self.onEvent = onEvent
+    }
+
+    func onPeerDiscovered(peerId: String, name: String, addr: String) {
+        onEvent(.peerDiscovered(peerId: peerId, name: name, addr: addr))
+    }
+
+    func onPeerLost(peerId: String) {
+        onEvent(.peerLost(peerId: peerId))
+    }
+}
+
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
@@ -56,7 +78,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var node: ClipboardNode?
     private var handler: MacEventHandler?
+    private var discoveryHandler: MacDiscoveryHandler?
+
     private var connectedPeers: [String] = []
+
+    struct NearbyPeer {
+        var peerId: String
+        var name: String
+        var addr: String
+    }
+    private var nearbyPeers: [String: NearbyPeer] = [:]
 
     private var listenerPort: UInt16 = 18455
 
@@ -81,6 +112,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
             if let handler = self.handler {
                 try node.startListener(port: listenerPort, handler: handler)
+            }
+
+            // Start discovery.
+            self.discoveryHandler = MacDiscoveryHandler { [weak self] event in
+                guard let self else { return }
+                Task { @MainActor in
+                    switch event {
+                    case let .peerDiscovered(peerId, name, addr):
+                        self.nearbyPeers[peerId] = NearbyPeer(peerId: peerId, name: name, addr: addr)
+                        self.updateMenu()
+                    case let .peerLost(peerId):
+                        self.nearbyPeers.removeValue(forKey: peerId)
+                        self.updateMenu()
+                    }
+                }
+            }
+
+            if let discoveryHandler = self.discoveryHandler {
+                let name = Host.current().localizedName ?? "macOS"
+                try node.startDiscovery(deviceName: name, handler: discoveryHandler)
             }
 
             updateMenu()
@@ -163,11 +214,195 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
+        menu.addItem(NSMenuItem(title: "Nearby Devices", action: nil, keyEquivalent: ""))
+        let nearbyList = nearbyPeers.values.sorted { $0.name < $1.name }
+        if nearbyList.isEmpty {
+            let item = NSMenuItem(title: "  None", action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            menu.addItem(item)
+        } else {
+            for p in nearbyList {
+                let trusted = isTrustedPeer(peerId: p.peerId)
+                let title = "  \(p.name) — \(p.peerId.prefix(8))…" + (trusted ? "" : " (unpaired)")
+                let item = NSMenuItem(title: title, action: #selector(pairWithNearby(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = p
+                item.isEnabled = !trusted
+                menu.addItem(item)
+            }
+        }
+
+        menu.addItem(NSMenuItem.separator())
+
+        menu.addItem(NSMenuItem(title: "Pair…", action: #selector(pairGeneric), keyEquivalent: "p"))
         menu.addItem(NSMenuItem(title: "Send Clipboard…", action: #selector(sendClipboard), keyEquivalent: "s"))
         menu.addItem(NSMenuItem(title: "Settings", action: #selector(showSettings), keyEquivalent: ","))
 
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q"))
+    }
+
+    private func isTrustedPeer(peerId: String) -> Bool {
+        do {
+            let store = try trustStoreOpen(path: trustStoreDefaultPath())
+            return try store.get(peerId: peerId) != nil
+        } catch {
+            return false
+        }
+    }
+
+    @objc private func pairWithNearby(_ sender: NSMenuItem) {
+        guard let p = sender.representedObject as? NearbyPeer else {
+            return
+        }
+        runPairFlow(defaultPeerName: p.name)
+    }
+
+    @objc private func pairGeneric() {
+        runPairFlow(defaultPeerName: nil)
+    }
+
+    private func runPairFlow(defaultPeerName: String?) {
+        let identityPath = defaultIdentityPath()
+
+        guard let myId = try? identityLoad(path: identityPath) else {
+            showError("Failed to load identity")
+            return
+        }
+
+        let myPeerId = myId.peerId()
+        let myPk = myId.pubkeyB64()
+        let myName = Host.current().localizedName ?? "macOS"
+
+        let role = NSAlert()
+        role.messageText = "Pair Device"
+        role.informativeText = defaultPeerName == nil ? "Choose a role" : "Nearby: \(defaultPeerName!)\n\nChoose a role"
+        role.addButton(withTitle: "Initiate")
+        role.addButton(withTitle: "Respond")
+        role.addButton(withTitle: "Cancel")
+        let r = role.runModal()
+        if r == .alertThirdButtonReturn { return }
+
+        do {
+            if r == .alertFirstButtonReturn {
+                // Initiator
+                let initPayload = pairingPayloadCreate(
+                    version: 1,
+                    peerId: myPeerId,
+                    name: myName,
+                    identityPk: Data(base64Encoded: myPk)!.map { $0 },
+                    lanPort: UInt16(listenerPort),
+                    nonce: randomNonce32()
+                )
+                let initQr = initPayload.toQrString()
+
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(initQr, forType: .string)
+
+                let showInit = NSAlert()
+                showInit.messageText = "Init string copied"
+                showInit.informativeText = "Paste this init string on the other device.\n\n(init is already copied to your clipboard)"
+                showInit.addButton(withTitle: "Continue")
+                showInit.runModal()
+
+                let input = NSAlert()
+                input.messageText = "Paste response string"
+                let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 420, height: 24))
+                field.placeholderString = "openclipboard://pair?..."
+                input.accessoryView = field
+                input.addButton(withTitle: "Next")
+                input.addButton(withTitle: "Cancel")
+                if input.runModal() != .alertFirstButtonReturn { return }
+
+                let respQr = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                let fin = try finalizePairing(initQr: initQr, respQr: respQr)
+
+                let confirm = NSAlert()
+                confirm.messageText = "Confirmation code: \(fin.code)"
+                confirm.informativeText = "Confirm the code matches on the other device, then click Confirm."
+                confirm.addButton(withTitle: "Confirm")
+                confirm.addButton(withTitle: "Cancel")
+                if confirm.runModal() != .alertFirstButtonReturn { return }
+
+                let store = try trustStoreOpen(path: trustStoreDefaultPath())
+                try store.add(peerId: fin.remotePeerId, identityPkB64: fin.remotePkB64, displayName: fin.remoteName)
+                showError("Paired with \(fin.remotePeerId)")
+            } else {
+                // Responder
+                let input = NSAlert()
+                input.messageText = "Paste init string"
+                let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 420, height: 24))
+                field.placeholderString = "openclipboard://pair?..."
+                input.accessoryView = field
+                input.addButton(withTitle: "Next")
+                input.addButton(withTitle: "Cancel")
+                if input.runModal() != .alertFirstButtonReturn { return }
+
+                let initQr = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                let initPayload = try pairingPayloadFromQrString(s: initQr)
+
+                let respPayload = pairingPayloadCreate(
+                    version: 1,
+                    peerId: myPeerId,
+                    name: myName,
+                    identityPk: Data(base64Encoded: myPk)!.map { $0 },
+                    lanPort: UInt16(listenerPort),
+                    nonce: initPayload.nonce()
+                )
+                let respQr = respPayload.toQrString()
+
+                let code = deriveConfirmationCode(nonce: initPayload.nonce(), peerAId: initPayload.peerId(), peerBId: respPayload.peerId())
+
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(respQr, forType: .string)
+
+                let showResp = NSAlert()
+                showResp.messageText = "Response copied"
+                showResp.informativeText = "Send this response to the initiator.\n\nConfirmation code: \(code)\n\n(response is copied to clipboard)"
+                showResp.addButton(withTitle: "Confirm")
+                showResp.addButton(withTitle: "Cancel")
+                if showResp.runModal() != .alertFirstButtonReturn { return }
+
+                let store = try trustStoreOpen(path: trustStoreDefaultPath())
+                let remotePkB64 = Data(initPayload.identityPk()).base64EncodedString()
+                try store.add(peerId: initPayload.peerId(), identityPkB64: remotePkB64, displayName: initPayload.name())
+                showError("Paired with \(initPayload.peerId())")
+            }
+
+            updateMenu()
+        } catch {
+            showError("Pairing failed: \(error)")
+        }
+    }
+
+    private func randomNonce32() -> [UInt8] {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        if status != errSecSuccess {
+            // Fallback
+            for i in 0..<bytes.count { bytes[i] = UInt8.random(in: 0...255) }
+        }
+        return bytes
+    }
+
+    private struct FinalizeInfo {
+        var code: String
+        var remotePeerId: String
+        var remoteName: String
+        var remotePkB64: String
+    }
+
+    private func finalizePairing(initQr: String, respQr: String) throws -> FinalizeInfo {
+        let init = try pairingPayloadFromQrString(s: initQr)
+        let resp = try pairingPayloadFromQrString(s: respQr)
+
+        if init.nonce() != resp.nonce() {
+            throw NSError(domain: "OpenClipboard", code: 1, userInfo: [NSLocalizedDescriptionKey: "nonce mismatch"])
+        }
+
+        let code = deriveConfirmationCode(nonce: init.nonce(), peerAId: init.peerId(), peerBId: resp.peerId())
+        let remotePkB64 = Data(resp.identityPk()).base64EncodedString()
+        return FinalizeInfo(code: code, remotePeerId: resp.peerId(), remoteName: resp.name(), remotePkB64: remotePkB64)
     }
 
     @objc private func sendClipboard() {

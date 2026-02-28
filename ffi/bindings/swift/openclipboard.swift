@@ -527,9 +527,13 @@ public protocol ClipboardNodeProtocol: AnyObject, Sendable {
     
     func peerId()  -> String
     
+    func startDiscovery(deviceName: String, handler: DiscoveryHandler) throws 
+    
     func startListener(port: UInt16, handler: EventHandler) throws 
     
     func stop() 
+    
+    func stopDiscovery() 
     
 }
 open class ClipboardNode: ClipboardNodeProtocol, @unchecked Sendable {
@@ -607,6 +611,14 @@ open func peerId() -> String  {
 })
 }
     
+open func startDiscovery(deviceName: String, handler: DiscoveryHandler)throws   {try rustCallWithError(FfiConverterTypeOpenClipboardError_lift) {
+    uniffi_openclipboard_ffi_fn_method_clipboardnode_start_discovery(self.uniffiClonePointer(),
+        FfiConverterString.lower(deviceName),
+        FfiConverterCallbackInterfaceDiscoveryHandler_lower(handler),$0
+    )
+}
+}
+    
 open func startListener(port: UInt16, handler: EventHandler)throws   {try rustCallWithError(FfiConverterTypeOpenClipboardError_lift) {
     uniffi_openclipboard_ffi_fn_method_clipboardnode_start_listener(self.uniffiClonePointer(),
         FfiConverterUInt16.lower(port),
@@ -617,6 +629,12 @@ open func startListener(port: UInt16, handler: EventHandler)throws   {try rustCa
     
 open func stop()  {try! rustCall() {
     uniffi_openclipboard_ffi_fn_method_clipboardnode_stop(self.uniffiClonePointer(),$0
+    )
+}
+}
+    
+open func stopDiscovery()  {try! rustCall() {
+    uniffi_openclipboard_ffi_fn_method_clipboardnode_stop_discovery(self.uniffiClonePointer(),$0
     )
 }
 }
@@ -1389,6 +1407,152 @@ extension OpenClipboardError: Foundation.LocalizedError {
 
 
 
+public protocol DiscoveryHandler: AnyObject, Sendable {
+    
+    func onPeerDiscovered(peerId: String, name: String, addr: String) 
+    
+    func onPeerLost(peerId: String) 
+    
+}
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceDiscoveryHandler {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // This creates 1-element array, since this seems to be the only way to construct a const
+    // pointer that we can pass to the Rust code.
+    static let vtable: [UniffiVTableCallbackInterfaceDiscoveryHandler] = [UniffiVTableCallbackInterfaceDiscoveryHandler(
+        onPeerDiscovered: { (
+            uniffiHandle: UInt64,
+            peerId: RustBuffer,
+            name: RustBuffer,
+            addr: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceDiscoveryHandler.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onPeerDiscovered(
+                     peerId: try FfiConverterString.lift(peerId),
+                     name: try FfiConverterString.lift(name),
+                     addr: try FfiConverterString.lift(addr)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        onPeerLost: { (
+            uniffiHandle: UInt64,
+            peerId: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceDiscoveryHandler.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onPeerLost(
+                     peerId: try FfiConverterString.lift(peerId)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            let result = try? FfiConverterCallbackInterfaceDiscoveryHandler.handleMap.remove(handle: uniffiHandle)
+            if result == nil {
+                print("Uniffi callback interface DiscoveryHandler: handle missing in uniffiFree")
+            }
+        }
+    )]
+}
+
+private func uniffiCallbackInitDiscoveryHandler() {
+    uniffi_openclipboard_ffi_fn_init_callback_vtable_discoveryhandler(UniffiCallbackInterfaceDiscoveryHandler.vtable)
+}
+
+// FfiConverter protocol for callback interfaces
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterCallbackInterfaceDiscoveryHandler {
+    fileprivate static let handleMap = UniffiHandleMap<DiscoveryHandler>()
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+extension FfiConverterCallbackInterfaceDiscoveryHandler : FfiConverter {
+    typealias SwiftType = DiscoveryHandler
+    typealias FfiType = UInt64
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lift(_ handle: UInt64) throws -> SwiftType {
+        try handleMap.get(handle: handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lower(_ v: SwiftType) -> UInt64 {
+        return handleMap.insert(obj: v)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func write(_ v: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(v))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterCallbackInterfaceDiscoveryHandler_lift(_ handle: UInt64) throws -> DiscoveryHandler {
+    return try FfiConverterCallbackInterfaceDiscoveryHandler.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterCallbackInterfaceDiscoveryHandler_lower(_ v: DiscoveryHandler) -> UInt64 {
+    return FfiConverterCallbackInterfaceDiscoveryHandler.lower(v)
+}
+
+
+
+
 public protocol EventHandler: AnyObject, Sendable {
     
     func onClipboardText(peerId: String, text: String, tsMs: UInt64) 
@@ -1807,10 +1971,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_openclipboard_ffi_checksum_method_clipboardnode_peer_id() != 3503) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_openclipboard_ffi_checksum_method_clipboardnode_start_discovery() != 28153) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_openclipboard_ffi_checksum_method_clipboardnode_start_listener() != 7176) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_openclipboard_ffi_checksum_method_clipboardnode_stop() != 10276) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_openclipboard_ffi_checksum_method_clipboardnode_stop_discovery() != 35689) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_openclipboard_ffi_checksum_method_identity_info() != 2247) {
@@ -1858,6 +2028,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_openclipboard_ffi_checksum_method_truststore_remove() != 28281) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_openclipboard_ffi_checksum_method_discoveryhandler_on_peer_discovered() != 5960) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_openclipboard_ffi_checksum_method_discoveryhandler_on_peer_lost() != 53264) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_openclipboard_ffi_checksum_method_eventhandler_on_clipboard_text() != 36399) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -1874,6 +2050,7 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
 
+    uniffiCallbackInitDiscoveryHandler()
     uniffiCallbackInitEventHandler()
     return InitializationResult.ok
 }()
