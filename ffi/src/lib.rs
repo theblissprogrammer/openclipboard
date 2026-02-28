@@ -60,6 +60,25 @@ pub type Result<T> = std::result::Result<T, OpenClipboardError>;
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[derive(Clone, Debug)]
+pub struct ClipboardHistoryEntry {
+    pub id: String,
+    pub content: String,
+    pub source_peer: String,
+    pub timestamp: u64,
+}
+
+impl From<openclipboard_core::ClipboardEntry> for ClipboardHistoryEntry {
+    fn from(e: openclipboard_core::ClipboardEntry) -> Self {
+        Self {
+            id: e.id,
+            content: e.content,
+            source_peer: e.source_peer,
+            timestamp: e.timestamp,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct IdentityInfo {
     pub peer_id: String,
     pub pubkey_b64: String,
@@ -344,6 +363,9 @@ pub struct ClipboardNode {
     sync_discovery: Arc<BoxDiscovery>,
     sync_bind_ip: std::net::IpAddr,
     sync_service: Mutex<Option<Arc<openclipboard_core::SyncService<BoxDiscovery>>>>,
+
+    // Clipboard provider for recall (set when start_mesh is called)
+    mesh_provider: Mutex<Option<Arc<dyn ClipboardProvider>>>,
 }
 
 impl ClipboardNode {
@@ -399,6 +421,7 @@ impl ClipboardNode {
             sync_discovery: Arc::new(BoxDiscovery::new(mdns_dyn)),
             sync_bind_ip: std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
             sync_service: Mutex::new(None),
+            mesh_provider: Mutex::new(None),
         })
     }
 
@@ -463,6 +486,9 @@ impl ClipboardNode {
 
         let adapter = ClipboardCallbackAdapter { inner: provider };
         let provider_arc: Arc<dyn ClipboardProvider> = Arc::new(adapter);
+
+        // Store provider for recall
+        *self.mesh_provider.lock().unwrap() = Some(Arc::clone(&provider_arc));
         let handler_arc: Arc<dyn EventHandler> = handler.into();
         let shim: Arc<dyn openclipboard_core::SyncHandler> = Arc::new(MeshHandlerShim {
             inner: handler_arc,
@@ -785,6 +811,45 @@ impl ClipboardNode {
         self.runtime.spawn(async move {
             let _ = discovery.stop_discovery().await;
         });
+    }
+
+    pub fn get_clipboard_history(&self, limit: u32) -> Vec<ClipboardHistoryEntry> {
+        let service = self.sync_service.lock().unwrap();
+        match service.as_ref() {
+            Some(s) => s.history().get_recent(limit as usize).into_iter().map(Into::into).collect(),
+            None => Vec::new(),
+        }
+    }
+
+    pub fn get_clipboard_history_for_peer(&self, peer_name: String, limit: u32) -> Vec<ClipboardHistoryEntry> {
+        let service = self.sync_service.lock().unwrap();
+        match service.as_ref() {
+            Some(s) => s.history().get_for_peer(&peer_name, limit as usize).into_iter().map(Into::into).collect(),
+            None => Vec::new(),
+        }
+    }
+
+    pub fn recall_from_history(&self, entry_id: String) -> Result<ClipboardHistoryEntry> {
+        let service = self.sync_service.lock().unwrap();
+        let service = service.as_ref().ok_or(OpenClipboardError::Other)?;
+
+        let entry = service.history().get_by_id(&entry_id).ok_or(OpenClipboardError::Other)?;
+
+        let provider = self.mesh_provider.lock().unwrap();
+        let provider = provider.as_ref().ok_or(OpenClipboardError::Other)?;
+
+        // Set silent flag so the watcher won't broadcast this write.
+        service.silent_write_flag().store(true, std::sync::atomic::Ordering::SeqCst);
+
+        // Also note in echo suppressor as extra safety.
+        self.runtime.block_on(async {
+            service.echo_suppressor().lock().await.note_remote_write(&entry.content);
+        });
+
+        provider.write(ClipboardContent::Text(entry.content.clone()))
+            .map_err(|_| OpenClipboardError::Other)?;
+
+        Ok(entry.into())
     }
 
     pub fn stop(&self) {

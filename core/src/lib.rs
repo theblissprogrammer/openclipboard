@@ -12,6 +12,7 @@ pub mod trust;
 pub mod replay;
 pub mod sync;
 pub mod mesh;
+pub mod history;
 
 pub use protocol::{Frame, MsgType, StreamId, Message, encode_frame, decode_frame, encode_message, decode_message, PROTOCOL_VERSION};
 pub use identity::{IdentityProvider, Blake3Identity, MockIdentity, Ed25519Identity};
@@ -24,3 +25,4 @@ pub use replay::{ReplayProtector, MemoryReplayProtector};
 pub use pairing::{PairingPayload, derive_confirmation_code};
 pub use sync::{SyncService, SyncHandler, EchoSuppressor};
 pub use mesh::{PeerRegistry, PeerEntry, PeerStatus, FanoutResult, start_clipboard_watcher};
+pub use history::{ClipboardHistory, ClipboardEntry};

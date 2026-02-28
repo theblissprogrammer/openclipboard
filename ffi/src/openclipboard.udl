@@ -49,6 +49,13 @@ interface PairingPayload {
   [Throws=OpenClipboardError] string to_qr_string();
 };
 
+dictionary ClipboardHistoryEntry {
+  string id;
+  string content;
+  string source_peer;
+  u64 timestamp;
+};
+
 dictionary TrustRecord {
   string peer_id;
   string identity_pk_b64;
@@ -100,4 +107,9 @@ interface ClipboardNode {
   void stop_discovery();
 
   void stop();
+
+  // Clipboard history
+  sequence<ClipboardHistoryEntry> get_clipboard_history(u32 limit);
+  sequence<ClipboardHistoryEntry> get_clipboard_history_for_peer(string peer_name, u32 limit);
+  [Throws=OpenClipboardError] ClipboardHistoryEntry recall_from_history(string entry_id);
 };

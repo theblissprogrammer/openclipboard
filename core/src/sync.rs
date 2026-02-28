@@ -2,6 +2,7 @@
 
 use crate::clipboard::{ClipboardContent, ClipboardProvider};
 use crate::discovery::{Discovery, PeerInfo};
+use crate::history::ClipboardHistory;
 use crate::identity::Ed25519Identity;
 use crate::identity::IdentityProvider;
 use crate::mesh::PeerRegistry;
@@ -105,6 +106,10 @@ pub struct SyncService<D: Discovery + 'static> {
     peers: Arc<Mutex<HashMap<String, PeerHandle>>>,
     peer_registry: PeerRegistry,
     echo_suppressor: Arc<Mutex<EchoSuppressor>>,
+    history: Arc<ClipboardHistory>,
+
+    /// When true, the next clipboard write is a "silent recall" and should not trigger fanout.
+    silent_write: Arc<std::sync::atomic::AtomicBool>,
 
     stop_tx: watch::Sender<bool>,
     tasks: Mutex<Vec<JoinHandle<()>>>,
@@ -132,6 +137,8 @@ impl<D: Discovery + 'static> SyncService<D> {
             peers: Arc::new(Mutex::new(HashMap::new())),
             peer_registry: PeerRegistry::new(),
             echo_suppressor: Arc::new(Mutex::new(EchoSuppressor::new(32))),
+            history: Arc::new(ClipboardHistory::new(100)),
+            silent_write: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             stop_tx,
             tasks: Mutex::new(Vec::new()),
         })
@@ -161,6 +168,7 @@ impl<D: Discovery + 'static> SyncService<D> {
         let peers = Arc::clone(&self.peers);
         let echo_sup = Arc::clone(&self.echo_suppressor);
         let registry = self.peer_registry.clone();
+        let history = Arc::clone(&self.history);
 
         // Incoming accept loop
         let incoming_task = tokio::spawn(async move {
@@ -183,8 +191,9 @@ impl<D: Discovery + 'static> SyncService<D> {
                         let peers2 = Arc::clone(&peers);
                         let echo2 = Arc::clone(&echo_sup);
                         let registry2 = registry.clone();
+                        let history2 = Arc::clone(&history);
                         tokio::spawn(async move {
-                            if let Err(e) = handle_incoming_connection(conn, identity2, trust2, replay2, peers2, handler2, echo2, registry2).await {
+                            if let Err(e) = handle_incoming_connection(conn, identity2, trust2, replay2, peers2, handler2, echo2, registry2, history2).await {
                                 // already reported most errors
                                 let _ = e;
                             }
@@ -204,6 +213,7 @@ impl<D: Discovery + 'static> SyncService<D> {
         let handler3 = Arc::clone(&self.handler);
         let echo3 = Arc::clone(&self.echo_suppressor);
         let registry3 = self.peer_registry.clone();
+        let history3 = Arc::clone(&self.history);
         let dial_task = tokio::spawn(async move {
             let endpoint = match make_insecure_client_endpoint() {
                 Ok(ep) => ep,
@@ -257,9 +267,10 @@ impl<D: Discovery + 'static> SyncService<D> {
                     let handler4 = Arc::clone(&handler3);
                     let echo4 = Arc::clone(&echo3);
                     let registry4 = registry3.clone();
+                    let history4 = Arc::clone(&history3);
                     let transport2 = QuicTransport::new((*endpoint).clone());
                     tokio::spawn(async move {
-                        if let Err(e) = connect_loop(peer, transport2, identity4, trust4, replay4, peers4, handler4, echo4, registry4).await {
+                        if let Err(e) = connect_loop(peer, transport2, identity4, trust4, replay4, peers4, handler4, echo4, registry4, history4).await {
                             let _ = e;
                         }
                     });
@@ -308,6 +319,16 @@ impl<D: Discovery + 'static> SyncService<D> {
         &self.echo_suppressor
     }
 
+    /// Get a reference to the clipboard history.
+    pub fn history(&self) -> &Arc<ClipboardHistory> {
+        &self.history
+    }
+
+    /// Get a reference to the silent-write flag.
+    pub fn silent_write_flag(&self) -> &Arc<std::sync::atomic::AtomicBool> {
+        &self.silent_write
+    }
+
     /// Start mesh mode: run a clipboard watcher in the background and auto-broadcast changes.
     ///
     /// This calls `start()` first (listener + discovery + outbound connections), then adds
@@ -327,6 +348,8 @@ impl<D: Discovery + 'static> SyncService<D> {
         let stop_rx = self.stop_tx.subscribe();
         let echo_sup = Arc::clone(&self.echo_suppressor);
         let peers = Arc::clone(&self.peers);
+        let watcher_history = Arc::clone(&self.history);
+        let silent_flag = Arc::clone(&self.silent_write);
 
         let watcher = crate::mesh::start_clipboard_watcher(
             provider,
@@ -335,9 +358,18 @@ impl<D: Discovery + 'static> SyncService<D> {
             stop_rx,
             move |content| {
                 if let ClipboardContent::Text(text) = content {
+                    // Check if this is a silent recall write — skip fanout if so.
+                    if silent_flag.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                        // Still record in history as local.
+                        watcher_history.record(text, "local".into());
+                        return;
+                    }
+
+                    // Record local clipboard change in history.
+                    watcher_history.record(text.clone(), "local".into());
+
                     // Fan out to all connected peers (fire-and-forget from the watcher's perspective).
                     let peers = peers.clone();
-                    // We can't await here (sync callback), so use try_send.
                     let rt = tokio::runtime::Handle::try_current();
                     if let Ok(handle) = rt {
                         handle.spawn(async move {
@@ -365,6 +397,7 @@ async fn handle_incoming_connection(
     handler: Arc<dyn SyncHandler>,
     echo_suppressor: Arc<Mutex<EchoSuppressor>>,
     registry: PeerRegistry,
+    history: Arc<ClipboardHistory>,
 ) -> Result<()> {
     let session = Session::with_trust_and_replay(
         conn,
@@ -403,7 +436,7 @@ async fn handle_incoming_connection(
     registry.set_online(&peer_id, None).await;
     handler.on_peer_connected(peer_id.clone());
 
-    let res = peer_message_loop(session, peer_id.clone(), rx, Arc::clone(&handler), Arc::clone(&echo_suppressor)).await;
+    let res = peer_message_loop(session, peer_id.clone(), rx, Arc::clone(&handler), Arc::clone(&echo_suppressor), Arc::clone(&history)).await;
 
     peers.lock().await.remove(&peer_id);
     registry.set_offline(&peer_id).await;
@@ -422,6 +455,7 @@ async fn connect_loop(
     handler: Arc<dyn SyncHandler>,
     echo_suppressor: Arc<Mutex<EchoSuppressor>>,
     registry: PeerRegistry,
+    history: Arc<ClipboardHistory>,
 ) -> Result<()> {
     let mut backoff = Backoff::new();
 
@@ -478,7 +512,7 @@ async fn connect_loop(
         registry.set_online(&peer.peer_id, Some(peer.addr.clone())).await;
         handler.on_peer_connected(peer.peer_id.clone());
 
-        let loop_res = peer_message_loop(session, peer.peer_id.clone(), rx, Arc::clone(&handler), Arc::clone(&echo_suppressor)).await;
+        let loop_res = peer_message_loop(session, peer.peer_id.clone(), rx, Arc::clone(&handler), Arc::clone(&echo_suppressor), Arc::clone(&history)).await;
 
         peers.lock().await.remove(&peer.peer_id);
         registry.set_offline(&peer.peer_id).await;
@@ -496,6 +530,7 @@ async fn peer_message_loop<C: crate::transport::Connection, I: crate::identity::
     mut outbound_rx: mpsc::Receiver<String>,
     handler: Arc<dyn SyncHandler>,
     echo_suppressor: Arc<Mutex<EchoSuppressor>>,
+    history: Arc<ClipboardHistory>,
 ) -> Result<()> {
     loop {
         tokio::select! {
@@ -522,6 +557,8 @@ async fn peer_message_loop<C: crate::transport::Connection, I: crate::identity::
                 if let Message::ClipText { text, ts_ms, .. } = msg {
                     // Note in echo suppressor so the clipboard watcher won't re-broadcast.
                     echo_suppressor.lock().await.note_remote_write(&text);
+                    // Record in history.
+                    history.record(text.clone(), peer_id.clone());
                     handler.on_clipboard_text(peer_id.clone(), text, ts_ms);
                 }
             }
