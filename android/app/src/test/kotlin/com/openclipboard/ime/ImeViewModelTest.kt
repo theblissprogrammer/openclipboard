@@ -15,8 +15,8 @@ class ImeViewModelTest {
             ClipboardHistoryEntry(id = "3", content = "HELLO again", sourcePeer = "phone", timestamp = 3000u),
         )
 
-        vm.setSelectedPeer("phone")
-        vm.setQuery("hello")
+        vm.updateSelectedPeer("phone")
+        vm.updateQuery("hello")
 
         val ids = vm.toUiItems(entries).map { it.id }
         assertEquals(listOf("3"), ids)
