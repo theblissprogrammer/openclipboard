@@ -99,6 +99,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var syncEnabled: Bool = true
 
+    private var pairingQRWindowController: PairingQRWindowController?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMenuBarApp()
         wireUpFFI()
@@ -293,7 +295,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
-        menu.addItem(NSMenuItem(title: "Pair…", action: #selector(pairGeneric), keyEquivalent: "p"))
+        // Pairing
+        let pairingMenuItem = NSMenuItem(title: "Pairing", action: nil, keyEquivalent: "")
+        let pairingMenu = NSMenu(title: "Pairing")
+        pairingMenuItem.submenu = pairingMenu
+        pairingMenu.addItem(NSMenuItem(title: "Show Pairing QR…", action: #selector(showPairingQR), keyEquivalent: ""))
+        pairingMenu.items.last?.target = self
+        pairingMenu.addItem(NSMenuItem(title: "Pair…", action: #selector(pairGeneric), keyEquivalent: "p"))
+        pairingMenu.items.last?.target = self
+        menu.addItem(pairingMenuItem)
+
         menu.addItem(NSMenuItem(title: "Send Clipboard…", action: #selector(sendClipboard), keyEquivalent: "s"))
         menu.addItem(NSMenuItem(title: "Settings", action: #selector(showSettings), keyEquivalent: ","))
 
@@ -319,6 +330,46 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func pairGeneric() {
         runPairFlow(defaultPeerName: nil)
+    }
+
+    @objc private func showPairingQR() {
+        let identityPath = defaultIdentityPath()
+
+        guard let myId = try? identityLoad(path: identityPath) else {
+            showError("Failed to load identity")
+            return
+        }
+
+        let myPeerId = myId.peerId()
+        let myPk = myId.pubkeyB64()
+        let myName = Host.current().localizedName ?? "macOS"
+
+        do {
+            let initPayload = pairingPayloadCreate(
+                version: 1,
+                peerId: myPeerId,
+                name: myName,
+                identityPk: Data(base64Encoded: myPk)!.map { $0 },
+                lanPort: UInt16(listenerPort),
+                nonce: randomNonce32()
+            )
+            let initQr = try initPayload.toQrString()
+
+            if let wc = pairingQRWindowController {
+                wc.update(payload: initQr)
+                wc.showWindow(nil)
+                wc.window?.makeKeyAndOrderFront(nil)
+                NSApp.activate(ignoringOtherApps: true)
+            } else {
+                let wc = PairingQRWindowController(payload: initQr)
+                pairingQRWindowController = wc
+                wc.showWindow(nil)
+                wc.window?.makeKeyAndOrderFront(nil)
+                NSApp.activate(ignoringOtherApps: true)
+            }
+        } catch {
+            showError("Failed to generate pairing QR: \(error)")
+        }
     }
 
     private func runPairFlow(defaultPeerName: String?) {
@@ -373,8 +424,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 input.addButton(withTitle: "Cancel")
                 if input.runModal() != .alertFirstButtonReturn { return }
 
-                let respQr = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                let fin = try finalizePairing(initQr: initQr, respQr: respQr)
+                let respQr = PairingHelpers.normalizeQrString(field.stringValue)
+                let fin = try PairingHelpers.finalizePairing(initQr: initQr, respQr: respQr)
 
                 let confirm = NSAlert()
                 confirm.messageText = "Confirmation code: \(fin.code)"
@@ -397,7 +448,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 input.addButton(withTitle: "Cancel")
                 if input.runModal() != .alertFirstButtonReturn { return }
 
-                let initQr = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                let initQr = PairingHelpers.normalizeQrString(field.stringValue)
                 let initPayload = try pairingPayloadFromQrString(s: initQr)
 
                 let respPayload = pairingPayloadCreate(

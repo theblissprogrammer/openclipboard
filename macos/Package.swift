@@ -45,7 +45,7 @@ let package = Package(
 
         .testTarget(
             name: "OpenClipboardTests",
-            dependencies: ["OpenClipboardBindings"],
+            dependencies: ["OpenClipboard", "OpenClipboardBindings"],
             path: "Tests/OpenClipboardTests"
         ),
     ]
