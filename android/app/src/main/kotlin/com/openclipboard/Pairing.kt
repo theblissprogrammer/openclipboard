@@ -24,7 +24,7 @@ object Pairing {
 
     fun pkBytesFromB64(b64: String): ByteArray = Base64.getDecoder().decode(b64)
 
-    fun pkB64FromBytes(bytes: ByteArray): String = Base64.getEncoder().withoutPadding().encodeToString(bytes)
+    fun pkB64FromBytes(bytes: ByteArray): String = Base64.getEncoder().encodeToString(bytes)
 
     data class InitResult(
         val initQr: String,

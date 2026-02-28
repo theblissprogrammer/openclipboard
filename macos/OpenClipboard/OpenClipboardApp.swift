@@ -323,7 +323,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     lanPort: UInt16(listenerPort),
                     nonce: randomNonce32()
                 )
-                let initQr = initPayload.toQrString()
+                let initQr = try initPayload.toQrString()
 
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(initQr, forType: .string)
@@ -378,7 +378,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     lanPort: UInt16(listenerPort),
                     nonce: initPayload.nonce()
                 )
-                let respQr = respPayload.toQrString()
+                let respQr = try respPayload.toQrString()
 
                 let code = deriveConfirmationCode(nonce: initPayload.nonce(), peerAId: initPayload.peerId(), peerBId: respPayload.peerId())
 
