@@ -354,18 +354,20 @@ impl ClipboardNode {
         let trust_store = self.trust_store.clone();
         let replay_protector = self.replay_protector.clone();
 
-        let handle = self.runtime.spawn(async move {
-            let bind = format!("0.0.0.0:{}", port).parse().unwrap();
-            let (endpoint, _cert) = match make_server_endpoint(bind) {
-                Ok(ep) => ep,
-                Err(e) => {
-                    handler.on_error(format!("Failed to create server endpoint: {}", e));
-                    return;
-                }
-            };
+        // Bind synchronously so callers can connect immediately after this returns.
+        // (The previous implementation raced: connect could happen before the endpoint was bound.)
+        let bind = format!("0.0.0.0:{}", port).parse().unwrap();
+        let (endpoint, _cert) = match make_server_endpoint(bind) {
+            Ok(ep) => ep,
+            Err(e) => {
+                handler.on_error(format!("Failed to create server endpoint: {}", e));
+                return Err(OpenClipboardError::Other);
+            }
+        };
 
+        let handle = self.runtime.spawn(async move {
             let listener = QuicListener::new(endpoint);
-            
+
             loop {
                 let conn = match listener.accept().await {
                     Ok(conn) => conn,
