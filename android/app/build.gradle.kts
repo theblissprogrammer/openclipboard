@@ -44,14 +44,13 @@ android {
         compose = true
     }
 
-    testOptions {
-        unitTests.all(closureOf<Test> {
-            // UniFFI Kotlin bindings use this property to load the native lib via absolute path.
-            val lib = rootProject.projectDir.resolve("../target/debug/libopenclipboard_ffi.so")
-            if (lib.exists()) {
-                systemProperty("uniffi.component.openclipboard.libraryOverride", lib.absolutePath)
-            }
-        })
+}
+
+tasks.withType<Test> {
+    // UniFFI Kotlin bindings use this property to load the native lib via absolute path.
+    val lib = rootProject.projectDir.resolve("../target/debug/libopenclipboard_ffi.so")
+    if (lib.exists()) {
+        systemProperty("uniffi.component.openclipboard.libraryOverride", lib.absolutePath)
     }
 }
 
