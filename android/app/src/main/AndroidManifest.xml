@@ -36,6 +36,20 @@
             android:enabled="true"
             android:exported="false" />
 
+        <service
+            android:name=".ime.OpenClipboardImeService"
+            android:enabled="true"
+            android:exported="true"
+            android:label="@string/ime_name"
+            android:permission="android.permission.BIND_INPUT_METHOD">
+            <intent-filter>
+                <action android:name="android.view.InputMethod" />
+            </intent-filter>
+            <meta-data
+                android:name="android.view.im"
+                android:resource="@xml/openclipboard_ime" />
+        </service>
+
         <receiver
             android:name=".receiver.BootCompletedReceiver"
             android:enabled="true"

@@ -66,6 +66,15 @@ After confirmation, both devices add each other to their local trust store.
 
 ---
 
+## Android: enable the OpenClipboard keyboard (history-only IME)
+
+OpenClipboard ships with an optional **history-only keyboard** so you can paste synced clipboard history into any app.
+
+1. Android **Settings → System → Keyboard → On-screen keyboard → Manage on-screen keyboards**
+2. Enable **OpenClipboard (History)**
+3. Switch keyboards in any text field and choose **OpenClipboard (History)**
+4. Tap an entry to paste; long-press copies the entry back to the system clipboard.
+
 ## Android: enable Background Sync
 
 To keep the Android device listening for nearby peers and incoming clipboard updates:

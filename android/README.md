@@ -70,6 +70,17 @@ The workflow at `.github/workflows/build-artifacts.yml` produces an installable 
 - Artifact name: **`OpenClipboard-Android`**
 - Contains: `android/app/build/outputs/**/*.apk`
 
+## Enable the OpenClipboard keyboard (IME)
+
+OpenClipboard includes an optional **history-only keyboard** that can paste from your synced clipboard history in any app.
+
+1. Open **Android Settings → System → Keyboard → On-screen keyboard → Manage on-screen keyboards**
+2. Enable **OpenClipboard (History)**
+3. In any app, switch keyboards and select **OpenClipboard (History)**
+4. Tap an entry to paste. Long-press copies the entry back to the system clipboard.
+
+> Note: for the MVP, the IME starts the core if needed when the keyboard is shown.
+
 ## Permissions / runtime notes
 
 - The app uses a **foreground service** for Background Sync.
