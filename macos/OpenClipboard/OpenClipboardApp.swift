@@ -1,6 +1,7 @@
 import Cocoa
 import SwiftUI
 import Security
+import UserNotifications
 import OpenClipboardBindings
 
 @main
@@ -103,6 +104,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMenuBarApp()
+        requestNotificationAuthorizationIfNeeded()
         wireUpFFI()
     }
 
@@ -172,16 +174,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             NSPasteboard.general.setString(text, forType: .string)
 
             // Also show a small notification.
-            let n = NSUserNotification()
-            n.title = "Clipboard received"
-            n.informativeText = "From \(peerId)"
-            NSUserNotificationCenter.default.deliver(n)
+            postUserNotification(title: "Clipboard received", body: "From \(peerId)")
 
         case let .fileReceived(peerId, name, dataPath):
-            let n = NSUserNotification()
-            n.title = "File received"
-            n.informativeText = "\(name) from \(peerId) saved to \(dataPath)"
-            NSUserNotificationCenter.default.deliver(n)
+            postUserNotification(title: "File received", body: "\(name) from \(peerId) saved to \(dataPath)")
 
         case let .error(message):
             showError(message)
@@ -585,11 +581,35 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApplication.shared.terminate(self)
     }
 
+    private func requestNotificationAuthorizationIfNeeded() {
+        let center = UNUserNotificationCenter.current()
+        center.getNotificationSettings { settings in
+            if settings.authorizationStatus != .notDetermined { return }
+            center.requestAuthorization(options: [.alert, .sound]) { _, _ in
+                // Best-effort.
+            }
+        }
+    }
+
+    private func postUserNotification(title: String, body: String) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+
+        let request = UNNotificationRequest(
+            identifier: UUID().uuidString,
+            content: content,
+            trigger: nil
+        )
+
+        UNUserNotificationCenter.current().add(request) { _ in
+            // Best-effort.
+        }
+    }
+
     private func showError(_ message: String) {
         // Avoid spamming alerts if the app is in background; use notification.
-        let n = NSUserNotification()
-        n.title = "OpenClipboard"
-        n.informativeText = message
-        NSUserNotificationCenter.default.deliver(n)
+        postUserNotification(title: "OpenClipboard", body: message)
     }
 }
