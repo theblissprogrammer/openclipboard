@@ -7,6 +7,10 @@ activityCompose = "1.9.3"
 composeBom = "2024.12.01"
 jna = "5.16.0"
 junit = "4.13.2"
+androidxTestExtJunit = "1.2.1"
+androidxTestEspresso = "3.6.1"
+androidxTestRunner = "1.6.2"
+androidxTestRules = "1.6.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -23,6 +27,10 @@ androidx-navigation-compose = { group = "androidx.navigation", name = "navigatio
 google-material = { group = "com.google.android.material", name = "material", version = "1.12.0" }
 jna = { group = "net.java.dev.jna", name = "jna", version.ref = "jna" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxTestExtJunit" }
+androidx-test-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "androidxTestEspresso" }
+androidx-test-runner = { group = "androidx.test", name = "runner", version.ref = "androidxTestRunner" }
+androidx-test-rules = { group = "androidx.test", name = "rules", version.ref = "androidxTestRules" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
