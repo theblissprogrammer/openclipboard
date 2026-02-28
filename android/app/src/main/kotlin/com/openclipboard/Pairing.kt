@@ -1,6 +1,6 @@
 package com.openclipboard
 
-import android.util.Base64
+import java.util.Base64
 import uniffi.openclipboard.PairingPayload
 import uniffi.openclipboard.OpenClipboardException
 import uniffi.openclipboard.pairingPayloadCreate
@@ -22,9 +22,9 @@ object Pairing {
 
     fun randomNonce32(): ByteArray = ByteArray(32).also { rng.nextBytes(it) }
 
-    fun pkBytesFromB64(b64: String): ByteArray = Base64.decode(b64, Base64.DEFAULT)
+    fun pkBytesFromB64(b64: String): ByteArray = Base64.getDecoder().decode(b64)
 
-    fun pkB64FromBytes(bytes: ByteArray): String = Base64.encodeToString(bytes, Base64.NO_WRAP)
+    fun pkB64FromBytes(bytes: ByteArray): String = Base64.getEncoder().withoutPadding().encodeToString(bytes)
 
     data class InitResult(
         val initQr: String,

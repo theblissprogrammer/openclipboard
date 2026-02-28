@@ -179,19 +179,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func startPasteboardMonitor() {
         pasteboardTimer?.invalidate()
         pasteboardChangeCount = NSPasteboard.general.changeCount
+
+        // Swift 6 strict concurrency: Timer block is @Sendable; hop back to MainActor.
         pasteboardTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             guard let self else { return }
-            let pb = NSPasteboard.general
-            let cc = pb.changeCount
-            if cc == self.pasteboardChangeCount { return }
-            self.pasteboardChangeCount = cc
-            guard let text = pb.string(forType: .string) else { return }
-            if self.shouldIgnoreLocalChange(text) { return }
-            do {
-                try self.node?.sendClipboardText(text: text)
-            } catch {
-                self.showError("Broadcast failed: \(error)")
+            Task { @MainActor in
+                self.pollPasteboardAndBroadcast()
             }
+        }
+    }
+
+    @MainActor
+    private func pollPasteboardAndBroadcast() {
+        let pb = NSPasteboard.general
+        let cc = pb.changeCount
+        if cc == pasteboardChangeCount { return }
+        pasteboardChangeCount = cc
+        guard let text = pb.string(forType: .string) else { return }
+        if shouldIgnoreLocalChange(text) { return }
+        do {
+            try node?.sendClipboardText(text: text)
+        } catch {
+            showError("Broadcast failed: \(error)")
         }
     }
     private func setupMenuBarApp() {
@@ -413,16 +422,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func finalizePairing(initQr: String, respQr: String) throws -> FinalizeInfo {
-        let init = try pairingPayloadFromQrString(s: initQr)
-        let resp = try pairingPayloadFromQrString(s: respQr)
+        let initPayload = try pairingPayloadFromQrString(s: initQr)
+        let respPayload = try pairingPayloadFromQrString(s: respQr)
 
-        if init.nonce() != resp.nonce() {
+        if initPayload.nonce() != respPayload.nonce() {
             throw NSError(domain: "OpenClipboard", code: 1, userInfo: [NSLocalizedDescriptionKey: "nonce mismatch"])
         }
 
-        let code = deriveConfirmationCode(nonce: init.nonce(), peerAId: init.peerId(), peerBId: resp.peerId())
-        let remotePkB64 = Data(resp.identityPk()).base64EncodedString()
-        return FinalizeInfo(code: code, remotePeerId: resp.peerId(), remoteName: resp.name(), remotePkB64: remotePkB64)
+        let code = deriveConfirmationCode(nonce: initPayload.nonce(), peerAId: initPayload.peerId(), peerBId: respPayload.peerId())
+        let remotePkB64 = Data(respPayload.identityPk()).base64EncodedString()
+        return FinalizeInfo(code: code, remotePeerId: respPayload.peerId(), remoteName: respPayload.name(), remotePkB64: remotePkB64)
     }
 
     @objc private func sendClipboard() {
