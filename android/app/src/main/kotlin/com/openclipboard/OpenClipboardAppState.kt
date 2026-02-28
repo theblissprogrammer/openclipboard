@@ -161,6 +161,7 @@ object OpenClipboardAppState {
             })
             discoveryStarted = true
         } catch (e: Exception) {
+            lastError.value = e.message
             addActivity("Discovery failed: ${e.message}", "")
         }
     }
@@ -189,6 +190,7 @@ object OpenClipboardAppState {
             n.connectAndSendText(addr, text)
             addActivity("Sent clipboard text", addr)
         } catch (e: OpenClipboardException) {
+            lastError.value = e.message
             addActivity("Send failed: ${e.message}", addr)
         }
     }
@@ -200,6 +202,41 @@ object OpenClipboardAppState {
             store.list().map { TrustedPeerRecord(it.displayName, it.peerId) }
         } catch (_: Exception) {
             emptyList()
+        }
+    }
+
+    /**
+     * Remove a peer from the TrustStore, then refresh in-memory state.
+     *
+     * @return true if an entry was removed, false if it did not exist (or removal failed).
+     */
+    fun removeTrustedPeer(context: Context, peerId: String): Boolean {
+        val trustPath = File(context.filesDir, "trust.json").absolutePath
+        return try {
+            val store = trustStoreOpen(trustPath)
+            val removed = store.remove(peerId)
+            if (removed) {
+                addActivity("Removed trusted peer", peerId)
+            }
+            refreshTrustedPeers(context)
+            removed
+        } catch (e: Exception) {
+            lastError.value = e.message
+            addActivity("Remove failed: ${e.message}", peerId)
+            false
+        }
+    }
+
+    // Extracted for JVM unit tests (doesn't touch filesystem / Android Context).
+    internal fun removeTrustedPeerFromState(peerId: String) {
+        trustedPeers.removeAll { it.peerId == peerId }
+
+        // Update nearby trust flags.
+        for (i in nearbyPeers.indices) {
+            val p = nearbyPeers[i]
+            if (p.peerId == peerId && p.isTrusted) {
+                nearbyPeers[i] = p.copy(isTrusted = false)
+            }
         }
     }
 

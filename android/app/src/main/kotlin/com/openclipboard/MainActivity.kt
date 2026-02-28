@@ -22,6 +22,8 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.openclipboard.ui.qr.QrScanDialog
+import com.openclipboard.ui.qr.QrShowDialog
 import com.openclipboard.ui.theme.OpenClipboardTheme
 
 class MainActivity : ComponentActivity() {
@@ -250,7 +252,13 @@ fun PeersScreen() {
 
         LazyColumn {
             items(peers) { peer ->
-                PeerItem(peer)
+                PeerItem(
+                    peer = peer,
+                    onRemove = {
+                        OpenClipboardAppState.removeTrustedPeer(context, peer.peerId)
+                        peers = OpenClipboardAppState.listTrustedPeers(context)
+                    }
+                )
                 Divider()
             }
         }
@@ -345,6 +353,37 @@ fun SettingsScreen() {
 
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Status / Debug", style = MaterialTheme.typography.titleLarge)
+                    Spacer(Modifier.height(8.dp))
+
+                    val syncRunning = OpenClipboardAppState.syncRunning.value
+                    val discoveredCount = OpenClipboardAppState.nearbyPeers.size
+                    val connected = OpenClipboardAppState.connectedPeers.toList()
+
+                    Text(if (syncRunning) "Sync: Running" else "Sync: Stopped")
+                    Text("Discovered peers: $discoveredCount")
+                    Text("Connected peers: ${connected.size}")
+
+                    if (connected.isNotEmpty()) {
+                        val shown = connected.take(5)
+                        Text("Connected: ${shown.joinToString()}${if (connected.size > shown.size) " …" else ""}")
+                    }
+
+                    OpenClipboardAppState.lastError.value?.let { err ->
+                        Spacer(Modifier.height(8.dp))
+                        Text("Last error:", fontWeight = FontWeight.Medium)
+                        Text(err, color = MaterialTheme.colorScheme.error)
+                        TextButton(onClick = { OpenClipboardAppState.lastError.value = null }) {
+                            Text("Clear")
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp)) {
                     Text("Runtime", style = MaterialTheme.typography.titleLarge)
                     Spacer(Modifier.height(8.dp))
                     Text("Port: ${OpenClipboardAppState.listeningPort.value}")
@@ -373,7 +412,10 @@ fun ActivityItem(activity: ActivityRecord) {
 }
 
 @Composable
-fun PeerItem(peer: TrustedPeerRecord) {
+fun PeerItem(
+    peer: TrustedPeerRecord,
+    onRemove: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -385,11 +427,7 @@ fun PeerItem(peer: TrustedPeerRecord) {
             Text(peer.name, fontWeight = FontWeight.Medium)
             Text(peer.peerId, style = MaterialTheme.typography.bodySmall)
         }
-        TextButton(
-            onClick = {
-                // TODO: Remove peer from trust store
-            }
-        ) {
+        TextButton(onClick = onRemove) {
             Text("Remove", color = MaterialTheme.colorScheme.error)
         }
     }
@@ -440,6 +478,9 @@ fun PairDialog(
 
     var role by remember { mutableStateOf<PairRole?>(null) }
 
+    var showScanDialog by remember { mutableStateOf(false) }
+    var showInitQrDialog by remember { mutableStateOf(false) }
+
     // Initiator state
     var initQr by remember { mutableStateOf<String?>(null) }
     var respQrInput by remember { mutableStateOf("") }
@@ -469,6 +510,25 @@ fun PairDialog(
         OpenClipboardAppState.addActivity("Paired with $peerId", peerId)
     }
 
+    fun generateResponderPayload() {
+        error = null
+        try {
+            val (myPeerId, myPk) = myIdentityInfo()
+            val res = Pairing.respondToInit(
+                initQr = initQrInput,
+                myPeerId = myPeerId,
+                myName = "Android ${android.os.Build.MODEL}".trim(),
+                myIdentityPkB64 = myPk,
+                myLanPort = OpenClipboardAppState.listeningPort.value,
+            )
+            respQr = res.respQr
+            respCode = res.confirmationCode
+            respRemoteInit = res.init
+        } catch (e: Exception) {
+            error = e.message
+        }
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Pair Device") },
@@ -496,9 +556,16 @@ fun PairDialog(
                             modifier = Modifier.fillMaxWidth(),
                             label = { Text("Init QR string") }
                         )
-                        TextButton(onClick = {
-                            clipboard.setText(androidx.compose.ui.text.AnnotatedString(initQr ?: ""))
-                        }) { Text("Copy") }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(onClick = {
+                                clipboard.setText(androidx.compose.ui.text.AnnotatedString(initQr ?: ""))
+                            }) { Text("Copy") }
+
+                            TextButton(
+                                onClick = { showInitQrDialog = true },
+                                enabled = !initQr.isNullOrBlank(),
+                            ) { Text("Show QR") }
+                        }
 
                         Spacer(Modifier.height(8.dp))
                         Text("Step 2: Paste response string from the other device")
@@ -525,6 +592,12 @@ fun PairDialog(
                             modifier = Modifier.fillMaxWidth(),
                             label = { Text("Init QR string") },
                         )
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(onClick = { showScanDialog = true }) {
+                                Text("Scan QR")
+                            }
+                        }
                     } else {
                         Text("Step 2: Send this response string back")
                         OutlinedTextField(
