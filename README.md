@@ -118,6 +118,27 @@ To keep the Android device listening for nearby peers and incoming clipboard upd
 - `macos/` — macOS app (Swift)
 - `docs/` — protocol and architecture docs
 
+---
+
+## CLI: local loopback benchmarks (QUIC)
+
+This repo includes a CI-oriented harness binary that can also run simple local benchmarks on a single machine.
+
+Build/run via Cargo:
+
+```bash
+# latency (one-way), defaults: n=1000, size=32 bytes
+cargo run -p openclipboard --bin openclipboard_e2e -- bench-latency
+
+# throughput, defaults: total=100MB, chunk=64KB
+cargo run -p openclipboard --bin openclipboard_e2e -- bench-throughput
+Tweak parameters (examples):
+
+```bash
+cargo run -p openclipboard --bin openclipboard_e2e -- bench-latency --n 5000 --size 64
+cargo run -p openclipboard --bin openclipboard_e2e -- bench-throughput --total-bytes $((1024*1024*1024)) --chunk-bytes $((256*1024))
+```
+
 ## License
 
 MIT

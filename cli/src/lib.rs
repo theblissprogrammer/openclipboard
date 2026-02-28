@@ -1,6 +1,10 @@
 use anyhow::{Context, Result};
+
+pub mod bench;
 use base64::Engine as _;
-use openclipboard_core::{derive_confirmation_code, Ed25519Identity, IdentityProvider, PairingPayload, TrustRecord};
+use openclipboard_core::{
+    Ed25519Identity, IdentityProvider, PairingPayload, TrustRecord, derive_confirmation_code,
+};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -36,7 +40,8 @@ pub fn load_or_create_identity(path: &Path) -> Result<Ed25519Identity> {
 }
 
 pub fn load_identity(path: &Path) -> Result<Ed25519Identity> {
-    let s = fs::read_to_string(path).with_context(|| format!("read identity file {}", path.display()))?;
+    let s = fs::read_to_string(path)
+        .with_context(|| format!("read identity file {}", path.display()))?;
     let file: IdentityFile = serde_json::from_str(&s)?;
     let sk_bytes = base64::engine::general_purpose::STANDARD
         .decode(file.signing_key_b64)
@@ -77,7 +82,12 @@ pub fn pairing_init_qr(name: String, port: u16, id: &Ed25519Identity, nonce: [u8
 }
 
 /// Respond to an init QR string; returns (resp_qr, confirmation_code).
-pub fn pairing_respond_qr(init_qr: &str, name: String, port: u16, id: &Ed25519Identity) -> Result<(String, String)> {
+pub fn pairing_respond_qr(
+    init_qr: &str,
+    name: String,
+    port: u16,
+    id: &Ed25519Identity,
+) -> Result<(String, String)> {
     let init = PairingPayload::from_qr_string(init_qr)?;
     let resp = PairingPayload {
         version: 1,
@@ -136,7 +146,10 @@ pub fn preview(s: &str) -> String {
     format!("{}…", &s[..N])
 }
 
-pub async fn send_file<C, I, CB>(session: &openclipboard_core::Session<C, I, CB>, path: &Path) -> Result<()>
+pub async fn send_file<C, I, CB>(
+    session: &openclipboard_core::Session<C, I, CB>,
+    path: &Path,
+) -> Result<()>
 where
     C: openclipboard_core::Connection,
     I: openclipboard_core::IdentityProvider,
@@ -160,7 +173,11 @@ where
         .await?;
 
     // Wait a short time for accept, but don't require it.
-    let _ = tokio::time::timeout(std::time::Duration::from_millis(500), session.recv_message()).await;
+    let _ = tokio::time::timeout(
+        std::time::Duration::from_millis(500),
+        session.recv_message(),
+    )
+    .await;
 
     let mut offset = 0u64;
     for chunk in data.chunks(CHUNK) {
