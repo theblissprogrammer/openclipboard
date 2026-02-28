@@ -1,5 +1,5 @@
 import XCTest
-import OpenClipboard
+@testable import OpenClipboard
 
 final class PairingHelpersTests: XCTestCase {
     func testNormalizeQrStringTrimsWhitespaceAndNewlines() {

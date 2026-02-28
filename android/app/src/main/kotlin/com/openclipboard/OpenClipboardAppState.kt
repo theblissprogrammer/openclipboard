@@ -44,8 +44,8 @@ object OpenClipboardAppState {
     private var discoveryStarted: Boolean = false
 
     // Compose state is not thread-safe; Discovery callbacks happen on a Rust runtime thread.
-    // Marshal list updates onto the main thread.
-    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    // Marshal list updates onto the main thread (initialized only when running on Android runtime).
+    private var mainHandler: android.os.Handler? = null
 
     /**
      * Starts the UniFFI node and begins sync + clipboard monitoring.
@@ -59,6 +59,9 @@ object OpenClipboardAppState {
         val trustPath = File(context.filesDir, "trust.json").absolutePath
 
         try {
+            if (mainHandler == null) {
+                mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+            }
             val n = clipboardNodeNew(identityPath, trustPath)
             node = n
             peerId.value = n.peerId()
@@ -156,19 +159,22 @@ object OpenClipboardAppState {
         try {
             n.startDiscovery(deviceName, object : uniffi.openclipboard.DiscoveryHandler {
                 override fun onPeerDiscovered(peerId: String, name: String, addr: String) {
-                    mainHandler.post {
+                    val h = mainHandler
+                    val update = Runnable {
                         val existingIndex = nearbyPeers.indexOfFirst { it.peerId == peerId }
                         val isTrusted = trustedPeers.any { it.peerId == peerId }
                         val rec = NearbyPeerRecord(peerId = peerId, name = name, addr = addr, isTrusted = isTrusted)
-
                         if (existingIndex >= 0) nearbyPeers[existingIndex] = rec else nearbyPeers.add(rec)
                     }
+                    if (h == null) update.run() else h.post(update)
                 }
 
                 override fun onPeerLost(peerId: String) {
-                    mainHandler.post {
+                    val h = mainHandler
+                    val update = Runnable {
                         nearbyPeers.removeAll { it.peerId == peerId }
                     }
+                    if (h == null) update.run() else h.post(update)
                 }
             })
             discoveryStarted = true
