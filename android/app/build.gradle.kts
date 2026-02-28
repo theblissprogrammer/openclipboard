@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.openclipboard"
-    compileSdk = 34
+    compileSdk = 35
 
     sourceSets {
         // Include generated UniFFI Kotlin bindings directly from the repo.
