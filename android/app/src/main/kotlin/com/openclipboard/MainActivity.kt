@@ -25,6 +25,7 @@ import androidx.navigation.compose.rememberNavController
 import com.openclipboard.ui.qr.QrScanDialog
 import com.openclipboard.ui.qr.QrShowDialog
 import com.openclipboard.ui.theme.OpenClipboardTheme
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
@@ -272,6 +273,10 @@ fun SettingsScreen() {
     val serviceRunning = OpenClipboardAppState.serviceRunning.value
 
     val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
+    // 0 = identity, 1 = trust, 2 = all
+    var pendingReset by remember { mutableStateOf<Int?>(null) }
     var notifPermissionDenied by remember { mutableStateOf(false) }
 
     val requestNotifications = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -341,8 +346,6 @@ fun SettingsScreen() {
                             OpenClipboardAppState.serviceRunning.value = false
                             stopService()
                         }
-
-                        OpenClipboardAppState.stop()
 
                         val msg = when (pendingReset) {
                             0 -> {

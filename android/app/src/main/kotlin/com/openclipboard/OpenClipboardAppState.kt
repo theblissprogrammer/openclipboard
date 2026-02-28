@@ -244,6 +244,92 @@ object OpenClipboardAppState {
 
     fun identityPath(context: Context): String = File(context.filesDir, "identity.json").absolutePath
 
+    data class ResetResult(
+        val identityDeleted: Boolean,
+        val trustDeleted: Boolean,
+    )
+
+    private fun deleteIfExists(file: File): Boolean {
+        return try {
+            file.exists() && file.delete()
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    // Extracted for JVM unit tests (pure Kotlin / no Android Context).
+    internal fun resetFiles(
+        identityFile: File,
+        trustFile: File,
+        resetIdentity: Boolean,
+        resetTrust: Boolean,
+    ): ResetResult {
+        val idDeleted = if (resetIdentity) deleteIfExists(identityFile) else false
+        val trustDeleted = if (resetTrust) deleteIfExists(trustFile) else false
+        return ResetResult(identityDeleted = idDeleted, trustDeleted = trustDeleted)
+    }
+
+    /**
+     * Deletes identity.json. The identity will be re-created on next init().
+     *
+     * Stops any running sync runtime first to avoid file contention.
+     */
+    fun resetIdentity(context: Context): Boolean {
+        stop()
+        val res = resetFiles(
+            identityFile = File(context.filesDir, "identity.json"),
+            trustFile = File(context.filesDir, "trust.json"),
+            resetIdentity = true,
+            resetTrust = false,
+        )
+        if (res.identityDeleted) {
+            peerId.value = "(initializing…)"
+            addActivity("Reset identity", "")
+        }
+        return res.identityDeleted
+    }
+
+    /**
+     * Deletes trust.json (clears trusted peers). The trust store will be re-created on next init().
+     *
+     * Stops any running sync runtime first to avoid file contention.
+     */
+    fun clearTrustedPeers(context: Context): Boolean {
+        stop()
+        val res = resetFiles(
+            identityFile = File(context.filesDir, "identity.json"),
+            trustFile = File(context.filesDir, "trust.json"),
+            resetIdentity = false,
+            resetTrust = true,
+        )
+        if (res.trustDeleted) {
+            addActivity("Cleared trusted peers", "")
+        }
+        return res.trustDeleted
+    }
+
+    /**
+     * Deletes both identity.json and trust.json.
+     *
+     * Stops any running sync runtime first to avoid file contention.
+     */
+    fun resetAll(context: Context): ResetResult {
+        stop()
+        val res = resetFiles(
+            identityFile = File(context.filesDir, "identity.json"),
+            trustFile = File(context.filesDir, "trust.json"),
+            resetIdentity = true,
+            resetTrust = true,
+        )
+        if (res.identityDeleted) {
+            peerId.value = "(initializing…)"
+        }
+        if (res.identityDeleted || res.trustDeleted) {
+            addActivity("Reset all", "")
+        }
+        return res
+    }
+
     fun addActivity(desc: String, peer: String) {
         // keep it small
         recentActivity.add(0, ActivityRecord(desc, peer, ""))
