@@ -1,9 +1,10 @@
 //! Persistent peer connections + clipboard sync.
 
-use crate::clipboard::ClipboardProvider;
+use crate::clipboard::{ClipboardContent, ClipboardProvider};
 use crate::discovery::{Discovery, PeerInfo};
 use crate::identity::Ed25519Identity;
 use crate::identity::IdentityProvider;
+use crate::mesh::PeerRegistry;
 use crate::quic_transport::{make_insecure_client_endpoint, make_server_endpoint, QuicListener, QuicTransport};
 use crate::replay::MemoryReplayProtector;
 use crate::session::Session;
@@ -102,6 +103,8 @@ pub struct SyncService<D: Discovery + 'static> {
     handler: Arc<dyn SyncHandler>,
 
     peers: Arc<Mutex<HashMap<String, PeerHandle>>>,
+    peer_registry: PeerRegistry,
+    echo_suppressor: Arc<Mutex<EchoSuppressor>>,
 
     stop_tx: watch::Sender<bool>,
     tasks: Mutex<Vec<JoinHandle<()>>>,
@@ -127,6 +130,8 @@ impl<D: Discovery + 'static> SyncService<D> {
             device_name,
             handler,
             peers: Arc::new(Mutex::new(HashMap::new())),
+            peer_registry: PeerRegistry::new(),
+            echo_suppressor: Arc::new(Mutex::new(EchoSuppressor::new(32))),
             stop_tx,
             tasks: Mutex::new(Vec::new()),
         })
@@ -154,6 +159,8 @@ impl<D: Discovery + 'static> SyncService<D> {
         let trust_store = Arc::clone(&self.trust_store);
         let replay = Arc::clone(&self.replay);
         let peers = Arc::clone(&self.peers);
+        let echo_sup = Arc::clone(&self.echo_suppressor);
+        let registry = self.peer_registry.clone();
 
         // Incoming accept loop
         let incoming_task = tokio::spawn(async move {
@@ -174,8 +181,10 @@ impl<D: Discovery + 'static> SyncService<D> {
                         let trust2 = Arc::clone(&trust_store);
                         let replay2 = Arc::clone(&replay);
                         let peers2 = Arc::clone(&peers);
+                        let echo2 = Arc::clone(&echo_sup);
+                        let registry2 = registry.clone();
                         tokio::spawn(async move {
-                            if let Err(e) = handle_incoming_connection(conn, identity2, trust2, replay2, peers2, handler2).await {
+                            if let Err(e) = handle_incoming_connection(conn, identity2, trust2, replay2, peers2, handler2, echo2, registry2).await {
                                 // already reported most errors
                                 let _ = e;
                             }
@@ -193,6 +202,8 @@ impl<D: Discovery + 'static> SyncService<D> {
         let discovery3 = Arc::clone(&self.discovery);
         let peers3 = Arc::clone(&self.peers);
         let handler3 = Arc::clone(&self.handler);
+        let echo3 = Arc::clone(&self.echo_suppressor);
+        let registry3 = self.peer_registry.clone();
         let dial_task = tokio::spawn(async move {
             let endpoint = match make_insecure_client_endpoint() {
                 Ok(ep) => ep,
@@ -244,9 +255,11 @@ impl<D: Discovery + 'static> SyncService<D> {
                     let replay4 = Arc::clone(&replay3);
                     let peers4 = Arc::clone(&peers3);
                     let handler4 = Arc::clone(&handler3);
+                    let echo4 = Arc::clone(&echo3);
+                    let registry4 = registry3.clone();
                     let transport2 = QuicTransport::new((*endpoint).clone());
                     tokio::spawn(async move {
-                        if let Err(e) = connect_loop(peer, transport2, identity4, trust4, replay4, peers4, handler4).await {
+                        if let Err(e) = connect_loop(peer, transport2, identity4, trust4, replay4, peers4, handler4, echo4, registry4).await {
                             let _ = e;
                         }
                     });
@@ -284,6 +297,63 @@ impl<D: Discovery + 'static> SyncService<D> {
             let _ = peer_id;
         }
     }
+
+    /// Get a reference to the peer registry.
+    pub fn peer_registry(&self) -> &PeerRegistry {
+        &self.peer_registry
+    }
+
+    /// Get a reference to the echo suppressor.
+    pub fn echo_suppressor(&self) -> &Arc<Mutex<EchoSuppressor>> {
+        &self.echo_suppressor
+    }
+
+    /// Start mesh mode: run a clipboard watcher in the background and auto-broadcast changes.
+    ///
+    /// This calls `start()` first (listener + discovery + outbound connections), then adds
+    /// a clipboard polling loop that fans out changes to all connected peers.
+    pub async fn start_mesh(
+        &self,
+        provider: Arc<dyn ClipboardProvider>,
+        poll_interval: std::time::Duration,
+    ) -> Result<()> {
+        // Load trust store into peer registry.
+        self.peer_registry.load_from_trust(self.trust_store.as_ref()).await?;
+
+        // Start the normal sync (listener + discovery + dial).
+        self.start().await?;
+
+        // Start clipboard watcher.
+        let stop_rx = self.stop_tx.subscribe();
+        let echo_sup = Arc::clone(&self.echo_suppressor);
+        let peers = Arc::clone(&self.peers);
+
+        let watcher = crate::mesh::start_clipboard_watcher(
+            provider,
+            echo_sup,
+            poll_interval,
+            stop_rx,
+            move |content| {
+                if let ClipboardContent::Text(text) = content {
+                    // Fan out to all connected peers (fire-and-forget from the watcher's perspective).
+                    let peers = peers.clone();
+                    // We can't await here (sync callback), so use try_send.
+                    let rt = tokio::runtime::Handle::try_current();
+                    if let Ok(handle) = rt {
+                        handle.spawn(async move {
+                            let map = peers.lock().await;
+                            for (_pid, h) in map.iter() {
+                                let _ = h.outbound_tx.send(text.clone()).await;
+                            }
+                        });
+                    }
+                }
+            },
+        );
+
+        self.tasks.lock().await.push(watcher);
+        Ok(())
+    }
 }
 
 async fn handle_incoming_connection(
@@ -293,6 +363,8 @@ async fn handle_incoming_connection(
     replay: Arc<MemoryReplayProtector>,
     peers: Arc<Mutex<HashMap<String, PeerHandle>>>,
     handler: Arc<dyn SyncHandler>,
+    echo_suppressor: Arc<Mutex<EchoSuppressor>>,
+    registry: PeerRegistry,
 ) -> Result<()> {
     let session = Session::with_trust_and_replay(
         conn,
@@ -328,11 +400,13 @@ async fn handle_incoming_connection(
         map.insert(peer_id.clone(), PeerHandle { outbound_tx: tx });
     }
 
+    registry.set_online(&peer_id, None).await;
     handler.on_peer_connected(peer_id.clone());
 
-    let res = peer_message_loop(session, peer_id.clone(), rx, Arc::clone(&handler)).await;
+    let res = peer_message_loop(session, peer_id.clone(), rx, Arc::clone(&handler), Arc::clone(&echo_suppressor)).await;
 
     peers.lock().await.remove(&peer_id);
+    registry.set_offline(&peer_id).await;
     handler.on_peer_disconnected(peer_id);
 
     res
@@ -346,6 +420,8 @@ async fn connect_loop(
     replay: Arc<MemoryReplayProtector>,
     peers: Arc<Mutex<HashMap<String, PeerHandle>>>,
     handler: Arc<dyn SyncHandler>,
+    echo_suppressor: Arc<Mutex<EchoSuppressor>>,
+    registry: PeerRegistry,
 ) -> Result<()> {
     let mut backoff = Backoff::new();
 
@@ -399,11 +475,13 @@ async fn connect_loop(
             map.insert(peer.peer_id.clone(), PeerHandle { outbound_tx: tx });
         }
 
+        registry.set_online(&peer.peer_id, Some(peer.addr.clone())).await;
         handler.on_peer_connected(peer.peer_id.clone());
 
-        let loop_res = peer_message_loop(session, peer.peer_id.clone(), rx, Arc::clone(&handler)).await;
+        let loop_res = peer_message_loop(session, peer.peer_id.clone(), rx, Arc::clone(&handler), Arc::clone(&echo_suppressor)).await;
 
         peers.lock().await.remove(&peer.peer_id);
+        registry.set_offline(&peer.peer_id).await;
         handler.on_peer_disconnected(peer.peer_id.clone());
 
         let _ = loop_res;
@@ -417,6 +495,7 @@ async fn peer_message_loop<C: crate::transport::Connection, I: crate::identity::
     peer_id: String,
     mut outbound_rx: mpsc::Receiver<String>,
     handler: Arc<dyn SyncHandler>,
+    echo_suppressor: Arc<Mutex<EchoSuppressor>>,
 ) -> Result<()> {
     loop {
         tokio::select! {
@@ -441,6 +520,8 @@ async fn peer_message_loop<C: crate::transport::Connection, I: crate::identity::
                 };
 
                 if let Message::ClipText { text, ts_ms, .. } = msg {
+                    // Note in echo suppressor so the clipboard watcher won't re-broadcast.
+                    echo_suppressor.lock().await.note_remote_write(&text);
                     handler.on_clipboard_text(peer_id.clone(), text, ts_ms);
                 }
             }

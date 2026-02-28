@@ -13,6 +13,7 @@ use openclipboard_core::{
     MemoryReplayProtector,
     FileTrustStore,
     ClipboardProvider,
+    ClipboardContent,
     clipboard::MockClipboard,
     quic_transport::{make_server_endpoint, make_insecure_client_endpoint, QuicListener, QuicTransport},
     Listener,
@@ -277,6 +278,38 @@ impl TrustStore {
 // ClipboardNode & EventHandler
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Callback interface for platform clipboard access (exposed via UniFFI).
+pub trait ClipboardCallback: Send + Sync {
+    fn read_text(&self) -> Option<String>;
+    fn write_text(&self, text: String);
+}
+
+/// Adapter from `ClipboardCallback` (UniFFI) to `ClipboardProvider` (core).
+struct ClipboardCallbackAdapter {
+    inner: Box<dyn ClipboardCallback>,
+}
+
+impl ClipboardProvider for ClipboardCallbackAdapter {
+    fn read(&self) -> anyhow::Result<ClipboardContent> {
+        match self.inner.read_text() {
+            Some(t) if !t.is_empty() => Ok(ClipboardContent::Text(t)),
+            _ => Ok(ClipboardContent::Empty),
+        }
+    }
+
+    fn write(&self, content: ClipboardContent) -> anyhow::Result<()> {
+        if let ClipboardContent::Text(t) = content {
+            self.inner.write_text(t);
+        }
+        Ok(())
+    }
+
+    fn on_change(&self, _callback: Box<dyn Fn(ClipboardContent) + Send + Sync>) -> anyhow::Result<()> {
+        // Mesh mode uses polling, so on_change is not needed.
+        Ok(())
+    }
+}
+
 pub trait EventHandler: Send + Sync {
     fn on_clipboard_text(&self, peer_id: String, text: String, ts_ms: u64);
     fn on_file_received(&self, peer_id: String, name: String, data_path: String);
@@ -385,6 +418,77 @@ impl ClipboardNode {
 impl ClipboardNode {
     pub fn peer_id(&self) -> String {
         self.identity.peer_id().to_string()
+    }
+
+    /// Start mesh mode: clipboard watcher + auto-broadcast to all trusted peers.
+    ///
+    /// `provider` is a clipboard provider that the watcher polls for changes.
+    /// On receive, remote clipboard text is written back via the provider.
+    pub fn start_mesh(
+        &self,
+        port: u16,
+        device_name: String,
+        handler: Box<dyn EventHandler>,
+        provider: Box<dyn ClipboardCallback>,
+        poll_interval_ms: u64,
+    ) -> Result<()> {
+        self.stop_sync();
+
+        let bind: std::net::SocketAddr = format!("{}:{}", self.sync_bind_ip, port).parse().unwrap();
+        let identity = self.identity.clone();
+        let trust_store: Arc<dyn openclipboard_core::TrustStore> = self.trust_store.clone();
+        let replay = self.replay_protector.clone();
+        let discovery = Arc::clone(&self.sync_discovery);
+
+        struct MeshHandlerShim {
+            inner: Arc<dyn EventHandler>,
+            provider: Arc<dyn ClipboardProvider>,
+        }
+        impl openclipboard_core::SyncHandler for MeshHandlerShim {
+            fn on_clipboard_text(&self, peer_id: String, text: String, ts_ms: u64) {
+                // Write received text to local clipboard.
+                let _ = self.provider.write(ClipboardContent::Text(text.clone()));
+                self.inner.on_clipboard_text(peer_id, text, ts_ms);
+            }
+            fn on_peer_connected(&self, peer_id: String) {
+                self.inner.on_peer_connected(peer_id);
+            }
+            fn on_peer_disconnected(&self, peer_id: String) {
+                self.inner.on_peer_disconnected(peer_id);
+            }
+            fn on_error(&self, message: String) {
+                self.inner.on_error(message);
+            }
+        }
+
+        let adapter = ClipboardCallbackAdapter { inner: provider };
+        let provider_arc: Arc<dyn ClipboardProvider> = Arc::new(adapter);
+        let handler_arc: Arc<dyn EventHandler> = handler.into();
+        let shim: Arc<dyn openclipboard_core::SyncHandler> = Arc::new(MeshHandlerShim {
+            inner: handler_arc,
+            provider: Arc::clone(&provider_arc),
+        });
+
+        let service = Arc::new(openclipboard_core::SyncService::new(
+            identity,
+            trust_store,
+            replay,
+            discovery,
+            bind,
+            device_name,
+            shim,
+        ).map_err(|_| OpenClipboardError::Other)?);
+
+        let poll_interval = std::time::Duration::from_millis(poll_interval_ms);
+        self.runtime.block_on(async {
+            service.start_mesh(provider_arc, poll_interval).await
+        }).map_err(|e| {
+            eprintln!("start_mesh failed: {e}");
+            OpenClipboardError::Other
+        })?;
+
+        *self.sync_service.lock().unwrap() = Some(service);
+        Ok(())
     }
 
     pub fn start_sync(&self, port: u16, device_name: String, handler: Box<dyn EventHandler>) -> Result<()> {

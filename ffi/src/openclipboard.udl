@@ -76,8 +76,16 @@ callback interface DiscoveryHandler {
   void on_peer_lost(string peer_id);
 };
 
+callback interface ClipboardCallback {
+  string? read_text();
+  void write_text(string text);
+};
+
 interface ClipboardNode {
   string peer_id();
+
+  // Phase 4: mesh sync — clipboard watcher + auto-broadcast to all trusted peers.
+  [Throws=OpenClipboardError] void start_mesh(u16 port, string device_name, EventHandler handler, ClipboardCallback provider, u64 poll_interval_ms);
 
   // Phase 3: persistent sync (listener + discovery + outbound connections).
   [Throws=OpenClipboardError] void start_sync(u16 port, string device_name, EventHandler handler);
