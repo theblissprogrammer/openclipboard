@@ -29,8 +29,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Wire up UniFFI node (MVP). This uses internal app storage for identity/trust.
-        OpenClipboardAppState.init(applicationContext)
+        // Sync runtime is managed by ClipboardService (see Settings -> Background Sync).
 
         enableEdgeToEdge()
         setContent {
@@ -42,7 +41,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        OpenClipboardAppState.stop()
+        // Do not stop the runtime here; ClipboardService may be keeping sync alive.
     }
 }
 
@@ -262,22 +261,96 @@ fun PeersScreen() {
 fun SettingsScreen() {
     val context = LocalContext.current
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-    ) {
-        Text("Settings", style = MaterialTheme.typography.headlineMedium)
+    val serviceRunning = OpenClipboardAppState.serviceRunning.value
 
-        Spacer(Modifier.height(24.dp))
+    val snackbarHostState = remember { SnackbarHostState() }
+    var notifPermissionDenied by remember { mutableStateOf(false) }
 
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("Runtime", style = MaterialTheme.typography.titleLarge)
-                Spacer(Modifier.height(8.dp))
-                Text("Port: ${OpenClipboardAppState.listeningPort.value}")
-                Text("Identity Path: ${context.filesDir.absolutePath}/identity.json")
-                Text("Trust Store: ${context.filesDir.absolutePath}/trust.json")
+    val requestNotifications = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (!granted && android.os.Build.VERSION.SDK_INT >= 33) {
+            // Best-effort hint.
+            notifPermissionDenied = true
+        }
+    }
+
+    LaunchedEffect(notifPermissionDenied) {
+        if (notifPermissionDenied) {
+            snackbarHostState.showSnackbar("Notification permission denied; background notification may be hidden")
+            notifPermissionDenied = false
+        }
+    }
+
+    fun startServiceWithBestEffortPermission() {
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            val perm = android.Manifest.permission.POST_NOTIFICATIONS
+            val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+                context,
+                perm
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+            if (!granted) {
+                requestNotifications.launch(perm)
+            }
+        }
+
+        androidx.core.content.ContextCompat.startForegroundService(
+            context,
+            com.openclipboard.service.ClipboardService.startIntent(context)
+        )
+    }
+
+    fun stopService() {
+        context.startService(com.openclipboard.service.ClipboardService.stopIntent(context))
+    }
+
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(16.dp)
+        ) {
+            Text("Settings", style = MaterialTheme.typography.headlineMedium)
+
+            Spacer(Modifier.height(24.dp))
+
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Background Sync", style = MaterialTheme.typography.titleLarge)
+                    Spacer(Modifier.height(8.dp))
+
+                    Text(if (serviceRunning) "Status: Running" else "Status: Stopped")
+
+                    Spacer(Modifier.height(12.dp))
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Button(
+                            onClick = { startServiceWithBestEffortPermission() },
+                            enabled = !serviceRunning,
+                        ) { Text("Start") }
+
+                        OutlinedButton(
+                            onClick = { stopService() },
+                            enabled = serviceRunning,
+                        ) { Text("Stop") }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Runtime", style = MaterialTheme.typography.titleLarge)
+                    Spacer(Modifier.height(8.dp))
+                    Text("Port: ${OpenClipboardAppState.listeningPort.value}")
+                    Text("Identity Path: ${context.filesDir.absolutePath}/identity.json")
+                    Text("Trust Store: ${context.filesDir.absolutePath}/trust.json")
+                }
             }
         }
     }

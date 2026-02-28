@@ -97,12 +97,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var listenerPort: UInt16 = 18455
 
+    private var syncEnabled: Bool = true
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMenuBarApp()
         wireUpFFI()
     }
 
     private func wireUpFFI() {
+        if node != nil { return }
+        syncEnabled = true
         do {
             let identityPath = defaultIdentityPath()
             let trustPath = trustStoreDefaultPath()
@@ -120,6 +124,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 let name = Host.current().localizedName ?? "macOS"
                 try node.startSync(port: listenerPort, deviceName: name, handler: handler)
                 startPasteboardMonitor()
+            }
+
+            self.discoveryHandler = MacDiscoveryHandler { [weak self] event in
+                guard let self else { return }
+                Task { @MainActor in
+                    switch event {
+                    case let .peerDiscovered(peerId, name, addr):
+                        self.nearbyPeers[peerId] = NearbyPeer(peerId: peerId, name: name, addr: addr)
+                        self.updateMenu()
+                    case let .peerLost(peerId):
+                        self.nearbyPeers.removeValue(forKey: peerId)
+                        self.updateMenu()
+                    }
+                }
+            }
+
+            if let discoveryHandler = self.discoveryHandler {
+                let name = Host.current().localizedName ?? "macOS"
+                try node.startDiscovery(deviceName: name, handler: discoveryHandler)
             }
 
             updateMenu()
@@ -225,6 +248,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let portItem = NSMenuItem(title: "Listening: \(listenerPort)", action: nil, keyEquivalent: "")
         portItem.isEnabled = false
         menu.addItem(portItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        let syncTitle = syncEnabled ? "Sync: On" : "Sync: Off"
+        let syncItem = NSMenuItem(title: syncTitle, action: #selector(toggleSync), keyEquivalent: "t")
+        syncItem.target = self
+        menu.addItem(syncItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -476,8 +506,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
     }
 
-    @objc private func quit() {
+    private func stopSyncRuntime() {
+        syncEnabled = false
+        pasteboardTimer?.invalidate()
+        pasteboardTimer = nil
+
         node?.stop()
+        node = nil
+        handler = nil
+        discoveryHandler = nil
+
+        connectedPeers.removeAll()
+        nearbyPeers.removeAll()
+        updateMenu()
+    }
+
+    @objc private func toggleSync() {
+        if syncEnabled {
+            stopSyncRuntime()
+        } else {
+            wireUpFFI()
+        }
+    }
+
+    @objc private func quit() {
+        stopSyncRuntime()
         NSApplication.shared.terminate(self)
     }
 

@@ -15,6 +15,9 @@ object OpenClipboardAppState {
     val peerId = mutableStateOf("(initializing…)")
     val listeningPort = mutableStateOf(18455)
 
+    // Whether the background ClipboardService is running (best-effort UI indicator).
+    val serviceRunning = mutableStateOf(false)
+
     val connectedPeers = mutableStateListOf<String>()
     val recentActivity = mutableStateListOf<ActivityRecord>()
 
@@ -29,11 +32,19 @@ object OpenClipboardAppState {
     // Phase 3: echo suppression to prevent remote->local->remote loops.
     private val echoSuppressor = EchoSuppressor(capacity = 20)
     private var clipboardListener: ClipboardManager.OnPrimaryClipChangedListener? = null
+    private var clipboardManager: ClipboardManager? = null
+
+    private var discoveryStarted: Boolean = false
 
     // Compose state is not thread-safe; Discovery callbacks happen on a Rust runtime thread.
     // Marshal list updates onto the main thread.
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
+    /**
+     * Starts the UniFFI node and begins sync + clipboard monitoring.
+     *
+     * Idempotent: safe to call multiple times (won't double-register listeners).
+     */
     fun init(context: Context) {
         if (node != null) return
 
@@ -80,6 +91,7 @@ object OpenClipboardAppState {
 
             // Monitor local clipboard and broadcast changes.
             val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboardManager = cm
             val l = ClipboardManager.OnPrimaryClipChangedListener {
                 val clip = cm.primaryClip
                 val text = clip?.getItemAt(0)?.coerceToText(context)?.toString() ?: return@OnPrimaryClipChangedListener
@@ -93,21 +105,39 @@ object OpenClipboardAppState {
             }
             clipboardListener = l
             cm.addPrimaryClipChangedListener(l)
+
+            // Start mDNS discovery (idempotent).
+            startDiscovery(context)
         } catch (e: Exception) {
             addActivity("Init failed: ${e.message}", "")
         }
     }
 
+    /**
+     * Stops sync + discovery and unregisters local clipboard listeners.
+     */
     fun stop() {
+        clipboardListener?.let { l ->
+            try {
+                clipboardManager?.removePrimaryClipChangedListener(l)
+            } catch (_: Exception) {
+                // best-effort
+            }
+        }
+        clipboardListener = null
+        clipboardManager = null
+
         // Rust-side stop() stops listener + discovery.
         node?.stop()
         node = null
+        discoveryStarted = false
         connectedPeers.clear()
         nearbyPeers.clear()
         trustedPeers.clear()
     }
 
     fun startDiscovery(context: Context) {
+        if (discoveryStarted) return
         val n = node ?: return
 
         val deviceName = "Android ${android.os.Build.MODEL}".trim()
@@ -129,6 +159,7 @@ object OpenClipboardAppState {
                     }
                 }
             })
+            discoveryStarted = true
         } catch (e: Exception) {
             addActivity("Discovery failed: ${e.message}", "")
         }
