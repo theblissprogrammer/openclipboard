@@ -359,6 +359,9 @@ impl ClipboardNode {
         // For unit tests and local loopback, bind to localhost.
         // (Binding to 0.0.0.0 can fail in some CI sandboxes / restricted environments.)
         let bind = format!("127.0.0.1:{}", port).parse().unwrap();
+        // Quinn endpoint creation needs an active Tokio runtime.
+        // Enter this node's runtime context even though we're still in a sync method.
+        let _guard = self.runtime.enter();
         let (endpoint, _cert) = match make_server_endpoint(bind) {
             Ok(ep) => ep,
             Err(e) => {
