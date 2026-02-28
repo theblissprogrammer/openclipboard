@@ -19,6 +19,7 @@ use openclipboard_core::{
     Transport,
     Message,
     Discovery,
+    BoxDiscovery,
     MdnsDiscovery,
     DiscoveryEvent,
 };
@@ -307,7 +308,9 @@ pub struct ClipboardNode {
     discovery_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
 
     // Phase 3 sync service
-    sync_service: Mutex<Option<Arc<openclipboard_core::SyncService<MdnsDiscovery>>>>,
+    sync_discovery: Arc<BoxDiscovery>,
+    sync_bind_ip: std::net::IpAddr,
+    sync_service: Mutex<Option<Arc<openclipboard_core::SyncService<BoxDiscovery>>>>,
 }
 
 impl ClipboardNode {
@@ -349,16 +352,33 @@ impl ClipboardNode {
         let runtime = tokio::runtime::Runtime::new()
             .context("create tokio runtime")?;
 
+        let mdns: Arc<MdnsDiscovery> = Arc::new(MdnsDiscovery::new());
+        let mdns_dyn: Arc<dyn Discovery> = mdns.clone();
+
         Ok(Self {
             identity,
             trust_store,
             replay_protector,
             runtime,
             listener_handle: Mutex::new(None),
-            discovery: Arc::new(MdnsDiscovery::new()),
+            discovery: Arc::clone(&mdns),
             discovery_handle: Mutex::new(None),
+            sync_discovery: Arc::new(BoxDiscovery::new(mdns_dyn)),
+            sync_bind_ip: std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
             sync_service: Mutex::new(None),
         })
+    }
+
+    fn new_internal_with_sync_discovery(
+        identity_path: String,
+        trust_path: String,
+        sync_discovery: Arc<dyn Discovery>,
+        sync_bind_ip: std::net::IpAddr,
+    ) -> Result<Self> {
+        let mut node = Self::new_internal(identity_path, trust_path)?;
+        node.sync_discovery = Arc::new(BoxDiscovery::new(sync_discovery));
+        node.sync_bind_ip = sync_bind_ip;
+        Ok(node)
     }
 }
 
@@ -371,11 +391,11 @@ impl ClipboardNode {
         // Stop any previous sync instance.
         self.stop_sync();
 
-        let bind: std::net::SocketAddr = format!("0.0.0.0:{}", port).parse().unwrap();
+        let bind: std::net::SocketAddr = format!("{}:{}", self.sync_bind_ip, port).parse().unwrap();
         let identity = self.identity.clone();
         let trust_store: Arc<dyn openclipboard_core::TrustStore> = self.trust_store.clone();
         let replay = self.replay_protector.clone();
-        let discovery = Arc::clone(&self.discovery);
+        let discovery = Arc::clone(&self.sync_discovery);
 
         struct HandlerShim {
             inner: Arc<dyn EventHandler>,
@@ -718,6 +738,24 @@ impl ClipboardNode {
 
 pub fn clipboard_node_new(identity_path: String, trust_path: String) -> Result<Arc<ClipboardNode>> {
     Ok(Arc::new(ClipboardNode::new_internal(identity_path, trust_path)?))
+}
+
+/// Test-only escape hatch for deterministic sync tests.
+///
+/// This is intentionally not exposed via UniFFI / the UDL; it's only a Rust helper.
+#[doc(hidden)]
+pub fn clipboard_node_new_with_sync_discovery(
+    identity_path: String,
+    trust_path: String,
+    sync_discovery: Arc<dyn Discovery>,
+    sync_bind_ip: std::net::IpAddr,
+) -> Result<Arc<ClipboardNode>> {
+    Ok(Arc::new(ClipboardNode::new_internal_with_sync_discovery(
+        identity_path,
+        trust_path,
+        sync_discovery,
+        sync_bind_ip,
+    )?))
 }
 
 uniffi::include_scaffolding!("openclipboard");

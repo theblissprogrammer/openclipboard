@@ -40,6 +40,39 @@ pub trait Discovery: Send + Sync {
     async fn stop_discovery(&self) -> Result<()>;
 }
 
+/// Type-erased Discovery wrapper.
+///
+/// This lets higher-level components accept an `Arc<dyn Discovery>` while still
+/// using a concrete generic parameter (e.g. `SyncService<BoxDiscovery>`), which
+/// is useful for deterministic test injection.
+#[derive(Clone)]
+pub struct BoxDiscovery(pub Arc<dyn Discovery>);
+
+impl BoxDiscovery {
+    pub fn new(inner: Arc<dyn Discovery>) -> Self {
+        Self(inner)
+    }
+}
+
+#[async_trait]
+impl Discovery for BoxDiscovery {
+    async fn advertise(&self, info: PeerInfo) -> Result<()> {
+        self.0.advertise(info).await
+    }
+
+    async fn scan(&self) -> Result<Vec<PeerInfo>> {
+        self.0.scan().await
+    }
+
+    async fn start_discovery(&self, info: PeerInfo) -> Result<broadcast::Receiver<DiscoveryEvent>> {
+        self.0.start_discovery(info).await
+    }
+
+    async fn stop_discovery(&self) -> Result<()> {
+        self.0.stop_discovery().await
+    }
+}
+
 /// mDNS-based discovery using the mdns-sd crate.
 pub struct MdnsDiscovery {
     service_type: String,
@@ -311,24 +344,28 @@ impl Discovery for MdnsDiscovery {
 /// Mock discovery backed by a shared list.
 #[derive(Clone)]
 pub struct MockDiscovery {
-    peers: Arc<Mutex<Vec<PeerInfo>>>,
+    peers: Arc<Mutex<HashMap<String, PeerInfo>>>,
     broadcast_tx: broadcast::Sender<DiscoveryEvent>,
+    /// The peer_id this handle last started discovery for.
+    local_peer_id: Arc<Mutex<Option<String>>>,
 }
 
 impl MockDiscovery {
     pub fn new_shared() -> Self {
         let (broadcast_tx, _broadcast_rx) = broadcast::channel(1024);
-        Self { 
-            peers: Arc::new(Mutex::new(Vec::new())),
+        Self {
+            peers: Arc::new(Mutex::new(HashMap::new())),
             broadcast_tx,
+            local_peer_id: Arc::new(Mutex::new(None)),
         }
     }
 
     /// Create a second handle to the same shared state.
     pub fn clone_shared(&self) -> Self {
-        Self { 
+        Self {
             peers: Arc::clone(&self.peers),
             broadcast_tx: self.broadcast_tx.clone(),
+            local_peer_id: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -336,25 +373,24 @@ impl MockDiscovery {
 #[async_trait]
 impl Discovery for MockDiscovery {
     async fn advertise(&self, info: PeerInfo) -> Result<()> {
-        let mut peers = self.peers.lock().await;
-        peers.retain(|p| p.peer_id != info.peer_id);
-        peers.push(info);
+        self.peers.lock().await.insert(info.peer_id.clone(), info);
         Ok(())
     }
 
     async fn scan(&self) -> Result<Vec<PeerInfo>> {
-        Ok(self.peers.lock().await.clone())
+        Ok(self.peers.lock().await.values().cloned().collect())
     }
 
     async fn start_discovery(&self, info: PeerInfo) -> Result<broadcast::Receiver<DiscoveryEvent>> {
-        // For mock, just advertise and return a receiver
+        *self.local_peer_id.lock().await = Some(info.peer_id.clone());
         self.advertise(info).await?;
         Ok(self.broadcast_tx.subscribe())
     }
 
     async fn stop_discovery(&self) -> Result<()> {
-        // For mock, just clear peers
-        self.peers.lock().await.clear();
+        if let Some(id) = self.local_peer_id.lock().await.take() {
+            self.peers.lock().await.remove(&id);
+        }
         Ok(())
     }
 }
