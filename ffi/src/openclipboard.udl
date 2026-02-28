@@ -71,10 +71,17 @@ callback interface EventHandler {
   void on_error(string message);
 };
 
+callback interface DiscoveryHandler {
+  void on_peer_discovered(string peer_id, string name, string addr);
+  void on_peer_lost(string peer_id);
+};
+
 interface ClipboardNode {
   string peer_id();
   [Throws=OpenClipboardError] void start_listener(u16 port, EventHandler handler);
   [Throws=OpenClipboardError] void connect_and_send_text(string addr, string text);
   [Throws=OpenClipboardError] void connect_and_send_file(string addr, string file_path);
+  [Throws=OpenClipboardError] void start_discovery(string device_name, DiscoveryHandler handler);
+  void stop_discovery();
   void stop();
 };

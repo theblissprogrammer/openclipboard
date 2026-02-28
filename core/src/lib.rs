@@ -14,7 +14,7 @@ pub mod replay;
 pub use protocol::{Frame, MsgType, StreamId, Message, encode_frame, decode_frame, encode_message, decode_message, PROTOCOL_VERSION};
 pub use identity::{IdentityProvider, Blake3Identity, MockIdentity, Ed25519Identity};
 pub use transport::{Connection, Transport, Listener, MemoryConnection, memory_connection_pair, MemoryListener};
-pub use discovery::{Discovery, PeerInfo, MockDiscovery};
+pub use discovery::{Discovery, PeerInfo, MockDiscovery, MdnsDiscovery, DiscoveryEvent, DiscoveryListener};
 pub use clipboard::{ClipboardContent, ClipboardProvider, MockClipboard};
 pub use session::Session;
 pub use trust::{TrustRecord, TrustStore, MemoryTrustStore, FileTrustStore, default_trust_store_path};

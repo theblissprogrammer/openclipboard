@@ -18,6 +18,9 @@ use openclipboard_core::{
     Listener,
     Transport,
     Message,
+    Discovery,
+    MdnsDiscovery,
+    DiscoveryEvent,
 };
 
 // NOTE: This crate uses the UDL-based UniFFI flow.
@@ -281,6 +284,11 @@ pub trait EventHandler: Send + Sync {
     fn on_error(&self, message: String);
 }
 
+pub trait DiscoveryHandler: Send + Sync {
+    fn on_peer_discovered(&self, peer_id: String, name: String, addr: String);
+    fn on_peer_lost(&self, peer_id: String);
+}
+
 struct IncomingFile {
     name: String,
     expected: u64,
@@ -293,6 +301,8 @@ pub struct ClipboardNode {
     replay_protector: Arc<MemoryReplayProtector>,
     runtime: tokio::runtime::Runtime,
     listener_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    discovery: Arc<MdnsDiscovery>,
+    discovery_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 impl ClipboardNode {
@@ -340,6 +350,8 @@ impl ClipboardNode {
             replay_protector,
             runtime,
             listener_handle: Mutex::new(None),
+            discovery: Arc::new(MdnsDiscovery::new()),
+            discovery_handle: Mutex::new(None),
         })
     }
 }
@@ -525,10 +537,61 @@ impl ClipboardNode {
         Ok(())
     }
 
+    pub fn start_discovery(&self, device_name: String, handler: Box<dyn DiscoveryHandler>) -> Result<()> {
+        let identity = self.identity.clone();
+        let discovery = Arc::clone(&self.discovery);
+
+        let handle = self.runtime.spawn(async move {
+            // Get the current listener port or use a default
+            let peer_info = openclipboard_core::PeerInfo {
+                peer_id: identity.peer_id().to_string(),
+                name: device_name,
+                addr: "127.0.0.1:7651".to_string(), // Default port, should be configurable
+            };
+
+            match discovery.start_discovery(peer_info).await {
+                Ok(mut event_receiver) => {
+                    while let Ok(event) = event_receiver.recv().await {
+                        match event {
+                            DiscoveryEvent::PeerDiscovered(peer_info) => {
+                                handler.on_peer_discovered(
+                                    peer_info.peer_id,
+                                    peer_info.name,
+                                    peer_info.addr,
+                                );
+                            }
+                            DiscoveryEvent::PeerLost { peer_id } => {
+                                handler.on_peer_lost(peer_id);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Failed to start discovery: {}", e);
+                }
+            }
+        });
+
+        *self.discovery_handle.lock().unwrap() = Some(handle);
+        Ok(())
+    }
+
+    pub fn stop_discovery(&self) {
+        if let Some(handle) = self.discovery_handle.lock().unwrap().take() {
+            handle.abort();
+        }
+
+        let discovery = Arc::clone(&self.discovery);
+        self.runtime.spawn(async move {
+            let _ = discovery.stop_discovery().await;
+        });
+    }
+
     pub fn stop(&self) {
         if let Some(handle) = self.listener_handle.lock().unwrap().take() {
             handle.abort();
         }
+        self.stop_discovery();
     }
 
     // Helper function to send a file (similar to cli/src/lib.rs)
