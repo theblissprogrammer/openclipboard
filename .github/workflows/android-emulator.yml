@@ -77,21 +77,22 @@ jobs:
           disable-animations: true
           script: |
             set +e
+            set -x
+
             # Use -p to ensure Gradle uses the Android project root.
             gradle -p android :app:connectedDebugAndroidTest --no-daemon --stacktrace
             RC=$?
 
-            echo "--- adb devices"
             adb devices || true
 
-            echo "--- logcat (last 400 lines)"
-            adb logcat -d | tail -400 || true
+            # Dump logs to make "process crashed" actionable.
+            adb logcat -c || true
+            adb logcat -d > /tmp/logcat.txt || true
+            tail -400 /tmp/logcat.txt || true
 
-            echo "--- dumpsys crash"
             adb shell dumpsys dropbox --print system_app_crash app_crash system_server_crash 2>/dev/null | tail -200 || true
 
-            # Also try a direct launch to reproduce startup crash more deterministically.
-            echo "--- launch MainActivity"
+            # Direct launch attempt (helps when connectedDebugAndroidTest reports 0 tests)
             adb shell am start -W -n com.openclipboard/.MainActivity || true
             adb logcat -d | tail -200 || true
 
