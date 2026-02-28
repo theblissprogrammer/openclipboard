@@ -55,6 +55,13 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen() {
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    // Ensure the Rust core is initialized when the UI launches.
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        OpenClipboardAppState.init(context.applicationContext)
+    }
+
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route ?: "home"
