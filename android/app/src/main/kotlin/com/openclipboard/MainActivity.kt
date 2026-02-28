@@ -313,6 +313,79 @@ fun SettingsScreen() {
         context.startService(com.openclipboard.service.ClipboardService.stopIntent(context))
     }
 
+    if (pendingReset != null) {
+        val title = when (pendingReset) {
+            0 -> "Reset Identity"
+            1 -> "Clear Trusted Peers"
+            2 -> "Reset All"
+            else -> "Reset"
+        }
+
+        val body = when (pendingReset) {
+            0 -> "This will stop sync (if running) and delete identity.json. A new identity will be generated next time OpenClipboard starts."
+            1 -> "This will stop sync (if running) and delete trust.json, removing all trusted peers."
+            2 -> "This will stop sync (if running) and delete both identity.json and trust.json."
+            else -> ""
+        }
+
+        AlertDialog(
+            onDismissRequest = { pendingReset = null },
+            title = { Text(title) },
+            text = { Text(body) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val wasRunning = serviceRunning
+                        if (wasRunning) {
+                            // Stop the foreground service first; then stop the in-process runtime.
+                            OpenClipboardAppState.serviceRunning.value = false
+                            stopService()
+                        }
+
+                        OpenClipboardAppState.stop()
+
+                        val msg = when (pendingReset) {
+                            0 -> {
+                                val ok = OpenClipboardAppState.resetIdentity(context)
+                                if (ok) "Identity reset." else "Identity file not found (nothing to reset)."
+                            }
+
+                            1 -> {
+                                val ok = OpenClipboardAppState.clearTrustedPeers(context)
+                                if (ok) "Trusted peers cleared." else "Trust store not found (nothing to clear)."
+                            }
+
+                            2 -> {
+                                val r = OpenClipboardAppState.resetAll(context)
+                                if (r.identityDeleted || r.trustDeleted) "Identity/trust reset." else "No files found (nothing to reset)."
+                            }
+
+                            else -> ""
+                        }
+
+                        // Restart background sync if it was running previously.
+                        if (wasRunning) {
+                            startServiceWithBestEffortPermission()
+                        }
+
+                        scope.launch {
+                            snackbarHostState.showSnackbar(msg)
+                        }
+
+                        pendingReset = null
+                    }
+                ) {
+                    Text("Confirm", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { pendingReset = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { innerPadding ->
@@ -375,6 +448,46 @@ fun SettingsScreen() {
                         Text(err, color = MaterialTheme.colorScheme.error)
                         TextButton(onClick = { OpenClipboardAppState.lastError.value = null }) {
                             Text("Clear")
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Reset", style = MaterialTheme.typography.titleLarge)
+                    Spacer(Modifier.height(8.dp))
+
+                    Text(
+                        "These actions stop sync (if running) and delete local state files. This is destructive and cannot be undone.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+
+                    Spacer(Modifier.height(12.dp))
+
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = { pendingReset = 0 },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Reset Identity", color = MaterialTheme.colorScheme.error)
+                        }
+
+                        OutlinedButton(
+                            onClick = { pendingReset = 1 },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Clear Trusted Peers", color = MaterialTheme.colorScheme.error)
+                        }
+
+                        Button(
+                            onClick = { pendingReset = 2 },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                        ) {
+                            Text("Reset All", color = MaterialTheme.colorScheme.onError)
                         }
                     }
                 }
