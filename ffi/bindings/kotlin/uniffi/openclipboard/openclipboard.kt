@@ -375,7 +375,7 @@ private fun findLibraryName(componentName: String): String {
     if (libOverride != null) {
         return libOverride
     }
-    return "openclipboard_ffi"
+    return "uniffi_openclipboard"
 }
 
 private inline fun <reified Lib : Library> loadIndirect(
@@ -654,6 +654,12 @@ internal open class UniffiForeignFutureStructVoid(
 internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
     fun callback(`callbackData`: Long,`result`: UniffiForeignFutureStructVoid.UniffiByValue,)
 }
+internal interface UniffiCallbackInterfaceDiscoveryHandlerMethod0 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`peerId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`addr`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfaceDiscoveryHandlerMethod1 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`peerId`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
+}
 internal interface UniffiCallbackInterfaceEventHandlerMethod0 : com.sun.jna.Callback {
     fun callback(`uniffiHandle`: Long,`peerId`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,`tsMs`: Long,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
 }
@@ -668,6 +674,25 @@ internal interface UniffiCallbackInterfaceEventHandlerMethod3 : com.sun.jna.Call
 }
 internal interface UniffiCallbackInterfaceEventHandlerMethod4 : com.sun.jna.Callback {
     fun callback(`uniffiHandle`: Long,`message`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+@Structure.FieldOrder("onPeerDiscovered", "onPeerLost", "uniffiFree")
+internal open class UniffiVTableCallbackInterfaceDiscoveryHandler(
+    @JvmField internal var `onPeerDiscovered`: UniffiCallbackInterfaceDiscoveryHandlerMethod0? = null,
+    @JvmField internal var `onPeerLost`: UniffiCallbackInterfaceDiscoveryHandlerMethod1? = null,
+    @JvmField internal var `uniffiFree`: UniffiCallbackInterfaceFree? = null,
+) : Structure() {
+    class UniffiByValue(
+        `onPeerDiscovered`: UniffiCallbackInterfaceDiscoveryHandlerMethod0? = null,
+        `onPeerLost`: UniffiCallbackInterfaceDiscoveryHandlerMethod1? = null,
+        `uniffiFree`: UniffiCallbackInterfaceFree? = null,
+    ): UniffiVTableCallbackInterfaceDiscoveryHandler(`onPeerDiscovered`,`onPeerLost`,`uniffiFree`,), Structure.ByValue
+
+   internal fun uniffiSetValue(other: UniffiVTableCallbackInterfaceDiscoveryHandler) {
+        `onPeerDiscovered` = other.`onPeerDiscovered`
+        `onPeerLost` = other.`onPeerLost`
+        `uniffiFree` = other.`uniffiFree`
+    }
+
 }
 @Structure.FieldOrder("onClipboardText", "onFileReceived", "onPeerConnected", "onPeerDisconnected", "onError", "uniffiFree")
 internal open class UniffiVTableCallbackInterfaceEventHandler(
@@ -697,6 +722,19 @@ internal open class UniffiVTableCallbackInterfaceEventHandler(
     }
 
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -866,9 +904,19 @@ fun uniffi_openclipboard_ffi_checksum_method_clipboardnode_connect_and_send_text
 ): Short
 fun uniffi_openclipboard_ffi_checksum_method_clipboardnode_peer_id(
 ): Short
+fun uniffi_openclipboard_ffi_checksum_method_clipboardnode_send_clipboard_text(
+): Short
+fun uniffi_openclipboard_ffi_checksum_method_clipboardnode_start_discovery(
+): Short
 fun uniffi_openclipboard_ffi_checksum_method_clipboardnode_start_listener(
 ): Short
+fun uniffi_openclipboard_ffi_checksum_method_clipboardnode_start_sync(
+): Short
 fun uniffi_openclipboard_ffi_checksum_method_clipboardnode_stop(
+): Short
+fun uniffi_openclipboard_ffi_checksum_method_clipboardnode_stop_discovery(
+): Short
+fun uniffi_openclipboard_ffi_checksum_method_clipboardnode_stop_sync(
 ): Short
 fun uniffi_openclipboard_ffi_checksum_method_identity_info(
 ): Short
@@ -899,6 +947,10 @@ fun uniffi_openclipboard_ffi_checksum_method_truststore_get(
 fun uniffi_openclipboard_ffi_checksum_method_truststore_list(
 ): Short
 fun uniffi_openclipboard_ffi_checksum_method_truststore_remove(
+): Short
+fun uniffi_openclipboard_ffi_checksum_method_discoveryhandler_on_peer_discovered(
+): Short
+fun uniffi_openclipboard_ffi_checksum_method_discoveryhandler_on_peer_lost(
 ): Short
 fun uniffi_openclipboard_ffi_checksum_method_eventhandler_on_clipboard_text(
 ): Short
@@ -948,6 +1000,7 @@ internal interface UniffiLib : Library {
             val lib = loadIndirect<UniffiLib>(componentName)
             // No need to check the contract version and checksums, since 
             // we already did that with `IntegrityCheckingUniffiLib` above.
+            uniffiCallbackInterfaceDiscoveryHandler.register(lib)
             uniffiCallbackInterfaceEventHandler.register(lib)
             // Loading of library with integrity check done.
             lib
@@ -970,9 +1023,19 @@ fun uniffi_openclipboard_ffi_fn_method_clipboardnode_connect_and_send_text(`ptr`
 ): Unit
 fun uniffi_openclipboard_ffi_fn_method_clipboardnode_peer_id(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_openclipboard_ffi_fn_method_clipboardnode_send_clipboard_text(`ptr`: Pointer,`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_openclipboard_ffi_fn_method_clipboardnode_start_discovery(`ptr`: Pointer,`deviceName`: RustBuffer.ByValue,`handler`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
 fun uniffi_openclipboard_ffi_fn_method_clipboardnode_start_listener(`ptr`: Pointer,`port`: Short,`handler`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+fun uniffi_openclipboard_ffi_fn_method_clipboardnode_start_sync(`ptr`: Pointer,`port`: Short,`deviceName`: RustBuffer.ByValue,`handler`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
 fun uniffi_openclipboard_ffi_fn_method_clipboardnode_stop(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_openclipboard_ffi_fn_method_clipboardnode_stop_discovery(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_openclipboard_ffi_fn_method_clipboardnode_stop_sync(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_openclipboard_ffi_fn_clone_identity(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
@@ -1016,6 +1079,8 @@ fun uniffi_openclipboard_ffi_fn_method_truststore_list(`ptr`: Pointer,uniffi_out
 ): RustBuffer.ByValue
 fun uniffi_openclipboard_ffi_fn_method_truststore_remove(`ptr`: Pointer,`peerId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
+fun uniffi_openclipboard_ffi_fn_init_callback_vtable_discoveryhandler(`vtable`: UniffiVTableCallbackInterfaceDiscoveryHandler,
+): Unit
 fun uniffi_openclipboard_ffi_fn_init_callback_vtable_eventhandler(`vtable`: UniffiVTableCallbackInterfaceEventHandler,
 ): Unit
 fun uniffi_openclipboard_ffi_fn_func_clipboard_node_new(`identityPath`: RustBuffer.ByValue,`trustPath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1198,10 +1263,25 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_openclipboard_ffi_checksum_method_clipboardnode_peer_id() != 3503.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_openclipboard_ffi_checksum_method_clipboardnode_send_clipboard_text() != 29125.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_openclipboard_ffi_checksum_method_clipboardnode_start_discovery() != 28153.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_openclipboard_ffi_checksum_method_clipboardnode_start_listener() != 7176.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_openclipboard_ffi_checksum_method_clipboardnode_start_sync() != 58968.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_openclipboard_ffi_checksum_method_clipboardnode_stop() != 10276.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_openclipboard_ffi_checksum_method_clipboardnode_stop_discovery() != 35689.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_openclipboard_ffi_checksum_method_clipboardnode_stop_sync() != 62029.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_openclipboard_ffi_checksum_method_identity_info() != 2247.toShort()) {
@@ -1247,6 +1327,12 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_openclipboard_ffi_checksum_method_truststore_remove() != 28281.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_openclipboard_ffi_checksum_method_discoveryhandler_on_peer_discovered() != 5960.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_openclipboard_ffi_checksum_method_discoveryhandler_on_peer_lost() != 53264.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_openclipboard_ffi_checksum_method_eventhandler_on_clipboard_text() != 36399.toShort()) {
@@ -1694,9 +1780,19 @@ public interface ClipboardNodeInterface {
     
     fun `peerId`(): kotlin.String
     
+    fun `sendClipboardText`(`text`: kotlin.String)
+    
+    fun `startDiscovery`(`deviceName`: kotlin.String, `handler`: DiscoveryHandler)
+    
     fun `startListener`(`port`: kotlin.UShort, `handler`: EventHandler)
     
+    fun `startSync`(`port`: kotlin.UShort, `deviceName`: kotlin.String, `handler`: EventHandler)
+    
     fun `stop`()
+    
+    fun `stopDiscovery`()
+    
+    fun `stopSync`()
     
     companion object
 }
@@ -1820,6 +1916,30 @@ open class ClipboardNode: Disposable, AutoCloseable, ClipboardNodeInterface
     
 
     
+    @Throws(OpenClipboardException::class)override fun `sendClipboardText`(`text`: kotlin.String)
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(OpenClipboardException) { _status ->
+    UniffiLib.INSTANCE.uniffi_openclipboard_ffi_fn_method_clipboardnode_send_clipboard_text(
+        it, FfiConverterString.lower(`text`),_status)
+}
+    }
+    
+    
+
+    
+    @Throws(OpenClipboardException::class)override fun `startDiscovery`(`deviceName`: kotlin.String, `handler`: DiscoveryHandler)
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(OpenClipboardException) { _status ->
+    UniffiLib.INSTANCE.uniffi_openclipboard_ffi_fn_method_clipboardnode_start_discovery(
+        it, FfiConverterString.lower(`deviceName`),FfiConverterTypeDiscoveryHandler.lower(`handler`),_status)
+}
+    }
+    
+    
+
+    
     @Throws(OpenClipboardException::class)override fun `startListener`(`port`: kotlin.UShort, `handler`: EventHandler)
         = 
     callWithPointer {
@@ -1831,11 +1951,45 @@ open class ClipboardNode: Disposable, AutoCloseable, ClipboardNodeInterface
     
     
 
+    
+    @Throws(OpenClipboardException::class)override fun `startSync`(`port`: kotlin.UShort, `deviceName`: kotlin.String, `handler`: EventHandler)
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(OpenClipboardException) { _status ->
+    UniffiLib.INSTANCE.uniffi_openclipboard_ffi_fn_method_clipboardnode_start_sync(
+        it, FfiConverterUShort.lower(`port`),FfiConverterString.lower(`deviceName`),FfiConverterTypeEventHandler.lower(`handler`),_status)
+}
+    }
+    
+    
+
     override fun `stop`()
         = 
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_openclipboard_ffi_fn_method_clipboardnode_stop(
+        it, _status)
+}
+    }
+    
+    
+
+    override fun `stopDiscovery`()
+        = 
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_openclipboard_ffi_fn_method_clipboardnode_stop_discovery(
+        it, _status)
+}
+    }
+    
+    
+
+    override fun `stopSync`()
+        = 
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_openclipboard_ffi_fn_method_clipboardnode_stop_sync(
         it, _status)
 }
     }
@@ -2871,6 +3025,76 @@ public object FfiConverterTypeOpenClipboardError : FfiConverterRustBuffer<OpenCl
     }
 
 }
+
+
+
+
+
+public interface DiscoveryHandler {
+    
+    fun `onPeerDiscovered`(`peerId`: kotlin.String, `name`: kotlin.String, `addr`: kotlin.String)
+    
+    fun `onPeerLost`(`peerId`: kotlin.String)
+    
+    companion object
+}
+
+
+
+// Put the implementation in an object so we don't pollute the top-level namespace
+internal object uniffiCallbackInterfaceDiscoveryHandler {
+    internal object `onPeerDiscovered`: UniffiCallbackInterfaceDiscoveryHandlerMethod0 {
+        override fun callback(`uniffiHandle`: Long,`peerId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`addr`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypeDiscoveryHandler.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`onPeerDiscovered`(
+                    FfiConverterString.lift(`peerId`),
+                    FfiConverterString.lift(`name`),
+                    FfiConverterString.lift(`addr`),
+                )
+            }
+            val writeReturn = { _: Unit -> Unit }
+            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
+        }
+    }
+    internal object `onPeerLost`: UniffiCallbackInterfaceDiscoveryHandlerMethod1 {
+        override fun callback(`uniffiHandle`: Long,`peerId`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypeDiscoveryHandler.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`onPeerLost`(
+                    FfiConverterString.lift(`peerId`),
+                )
+            }
+            val writeReturn = { _: Unit -> Unit }
+            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
+        }
+    }
+
+    internal object uniffiFree: UniffiCallbackInterfaceFree {
+        override fun callback(handle: Long) {
+            FfiConverterTypeDiscoveryHandler.handleMap.remove(handle)
+        }
+    }
+
+    internal var vtable = UniffiVTableCallbackInterfaceDiscoveryHandler.UniffiByValue(
+        `onPeerDiscovered`,
+        `onPeerLost`,
+        uniffiFree,
+    )
+
+    // Registers the foreign callback with the Rust side.
+    // This method is generated for each callback interface.
+    internal fun register(lib: UniffiLib) {
+        lib.uniffi_openclipboard_ffi_fn_init_callback_vtable_discoveryhandler(vtable)
+    }
+}
+
+/**
+ * The ffiConverter which transforms the Callbacks in to handles to pass to Rust.
+ *
+ * @suppress
+ */
+public object FfiConverterTypeDiscoveryHandler: FfiConverterCallbackInterface<DiscoveryHandler>()
 
 
 

@@ -26,6 +26,10 @@ object OpenClipboardAppState {
 
     private var node: uniffi.openclipboard.ClipboardNode? = null
 
+    // Phase 3: echo suppression to prevent remote->local->remote loops.
+    private val echoSuppressor = EchoSuppressor(capacity = 20)
+    private var clipboardListener: ClipboardManager.OnPrimaryClipChangedListener? = null
+
     // Compose state is not thread-safe; Discovery callbacks happen on a Rust runtime thread.
     // Marshal list updates onto the main thread.
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -43,12 +47,13 @@ object OpenClipboardAppState {
 
             refreshTrustedPeers(context)
 
-            n.startListener(listeningPort.value.toUShort(), object : EventHandler {
+            n.startSync(listeningPort.value.toUShort(), "Android ${android.os.Build.MODEL}".trim(), object : EventHandler {
                 override fun onClipboardText(peerId: String, text: String, tsMs: ULong) {
                     addActivity("Received clipboard text", peerId)
 
                     // MVP: write received text to system clipboard.
                     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    echoSuppressor.noteRemoteWrite(text)
                     cm.setPrimaryClip(ClipData.newPlainText("openclipboard", text))
                 }
 
@@ -73,8 +78,21 @@ object OpenClipboardAppState {
                 }
             })
 
-            // Start LAN discovery (Phase 2).
-            startDiscovery(context)
+            // Monitor local clipboard and broadcast changes.
+            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val l = ClipboardManager.OnPrimaryClipChangedListener {
+                val clip = cm.primaryClip
+                val text = clip?.getItemAt(0)?.coerceToText(context)?.toString() ?: return@OnPrimaryClipChangedListener
+                if (echoSuppressor.shouldIgnoreLocalChange(text)) return@OnPrimaryClipChangedListener
+                try {
+                    n.sendClipboardText(text)
+                    addActivity("Broadcast clipboard text", "")
+                } catch (e: Exception) {
+                    addActivity("Broadcast failed: ${e.message}", "")
+                }
+            }
+            clipboardListener = l
+            cm.addPrimaryClipChangedListener(l)
         } catch (e: Exception) {
             addActivity("Init failed: ${e.message}", "")
         }
@@ -173,3 +191,20 @@ data class NearbyPeerRecord(
     val addr: String,
     val isTrusted: Boolean,
 )
+
+
+class EchoSuppressor(private val capacity: Int) {
+    private val recent = ArrayDeque<String>()
+
+    @Synchronized
+    fun noteRemoteWrite(text: String) {
+        if (recent.lastOrNull() == text) return
+        recent.addLast(text)
+        while (recent.size > capacity) recent.removeFirst()
+    }
+
+    @Synchronized
+    fun shouldIgnoreLocalChange(text: String): Boolean {
+        return recent.contains(text)
+    }
+}

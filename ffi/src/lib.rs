@@ -300,9 +300,14 @@ pub struct ClipboardNode {
     trust_store: Arc<FileTrustStore>,
     replay_protector: Arc<MemoryReplayProtector>,
     runtime: tokio::runtime::Runtime,
+
+    // Legacy (Phase 1/2)
     listener_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
     discovery: Arc<MdnsDiscovery>,
     discovery_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
+
+    // Phase 3 sync service
+    sync_service: Mutex<Option<Arc<openclipboard_core::SyncService<MdnsDiscovery>>>>,
 }
 
 impl ClipboardNode {
@@ -352,6 +357,7 @@ impl ClipboardNode {
             listener_handle: Mutex::new(None),
             discovery: Arc::new(MdnsDiscovery::new()),
             discovery_handle: Mutex::new(None),
+            sync_service: Mutex::new(None),
         })
     }
 }
@@ -359,6 +365,76 @@ impl ClipboardNode {
 impl ClipboardNode {
     pub fn peer_id(&self) -> String {
         self.identity.peer_id().to_string()
+    }
+
+    pub fn start_sync(&self, port: u16, device_name: String, handler: Box<dyn EventHandler>) -> Result<()> {
+        // Stop any previous sync instance.
+        self.stop_sync();
+
+        let bind: std::net::SocketAddr = format!("0.0.0.0:{}", port).parse().unwrap();
+        let identity = self.identity.clone();
+        let trust_store: Arc<dyn openclipboard_core::TrustStore> = self.trust_store.clone();
+        let replay = self.replay_protector.clone();
+        let discovery = Arc::clone(&self.discovery);
+
+        struct HandlerShim {
+            inner: Arc<dyn EventHandler>,
+        }
+        impl openclipboard_core::SyncHandler for HandlerShim {
+            fn on_clipboard_text(&self, peer_id: String, text: String, ts_ms: u64) {
+                self.inner.on_clipboard_text(peer_id, text, ts_ms);
+            }
+            fn on_peer_connected(&self, peer_id: String) {
+                self.inner.on_peer_connected(peer_id);
+            }
+            fn on_peer_disconnected(&self, peer_id: String) {
+                self.inner.on_peer_disconnected(peer_id);
+            }
+            fn on_error(&self, message: String) {
+                self.inner.on_error(message);
+            }
+        }
+
+        let handler_arc: Arc<dyn EventHandler> = handler.into();
+        let shim: Arc<dyn openclipboard_core::SyncHandler> = Arc::new(HandlerShim { inner: handler_arc });
+
+        let service = Arc::new(openclipboard_core::SyncService::new(
+            identity,
+            trust_store,
+            replay,
+            discovery,
+            bind,
+            device_name,
+            shim,
+        ).map_err(|_| OpenClipboardError::Other)?);
+
+        self.runtime.block_on(async {
+            service.start().await
+        }).map_err(|e| {
+            eprintln!("start_sync failed: {e}");
+            OpenClipboardError::Other
+        })?;
+
+        *self.sync_service.lock().unwrap() = Some(service);
+        Ok(())
+    }
+
+    pub fn stop_sync(&self) {
+        if let Some(service) = self.sync_service.lock().unwrap().take() {
+            let _ = self.runtime.block_on(async {
+                service.stop().await;
+            });
+        }
+    }
+
+    pub fn send_clipboard_text(&self, text: String) -> Result<()> {
+        let Some(service) = self.sync_service.lock().unwrap().clone() else {
+            return Err(OpenClipboardError::Other);
+        };
+        self.runtime.block_on(async {
+            service.broadcast_clip_text(text).await;
+        });
+        Ok(())
     }
 
     pub fn start_listener(&self, port: u16, handler: Box<dyn EventHandler>) -> Result<()> {
@@ -588,6 +664,8 @@ impl ClipboardNode {
     }
 
     pub fn stop(&self) {
+        self.stop_sync();
+
         if let Some(handle) = self.listener_handle.lock().unwrap().take() {
             handle.abort();
         }

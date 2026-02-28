@@ -78,10 +78,18 @@ callback interface DiscoveryHandler {
 
 interface ClipboardNode {
   string peer_id();
+
+  // Phase 3: persistent sync (listener + discovery + outbound connections).
+  [Throws=OpenClipboardError] void start_sync(u16 port, string device_name, EventHandler handler);
+  void stop_sync();
+  [Throws=OpenClipboardError] void send_clipboard_text(string text);
+
+  // Legacy / debugging APIs.
   [Throws=OpenClipboardError] void start_listener(u16 port, EventHandler handler);
   [Throws=OpenClipboardError] void connect_and_send_text(string addr, string text);
   [Throws=OpenClipboardError] void connect_and_send_file(string addr, string file_path);
   [Throws=OpenClipboardError] void start_discovery(string device_name, DiscoveryHandler handler);
   void stop_discovery();
+
   void stop();
 };

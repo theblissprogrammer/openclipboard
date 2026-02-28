@@ -82,6 +82,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var connectedPeers: [String] = []
 
+    // Phase 3: local clipboard monitoring + echo suppression.
+    private var pasteboardChangeCount: Int = NSPasteboard.general.changeCount
+    private var pasteboardTimer: Timer?
+    private var recentRemoteWrites: [String] = []
+    private let recentRemoteWritesCap: Int = 20
+
     struct NearbyPeer {
         var peerId: String
         var name: String
@@ -111,27 +117,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
 
             if let handler = self.handler {
-                try node.startListener(port: listenerPort, handler: handler)
-            }
-
-            // Start discovery.
-            self.discoveryHandler = MacDiscoveryHandler { [weak self] event in
-                guard let self else { return }
-                Task { @MainActor in
-                    switch event {
-                    case let .peerDiscovered(peerId, name, addr):
-                        self.nearbyPeers[peerId] = NearbyPeer(peerId: peerId, name: name, addr: addr)
-                        self.updateMenu()
-                    case let .peerLost(peerId):
-                        self.nearbyPeers.removeValue(forKey: peerId)
-                        self.updateMenu()
-                    }
-                }
-            }
-
-            if let discoveryHandler = self.discoveryHandler {
                 let name = Host.current().localizedName ?? "macOS"
-                try node.startDiscovery(deviceName: name, handler: discoveryHandler)
+                try node.startSync(port: listenerPort, deviceName: name, handler: handler)
+                startPasteboardMonitor()
             }
 
             updateMenu()
@@ -154,6 +142,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         case let .clipboardText(peerId, text, _):
             // Put received text on the system clipboard (MVP behavior).
+            noteRemoteWrite(text)
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
 
@@ -174,6 +163,37 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+
+    private func noteRemoteWrite(_ text: String) {
+        if recentRemoteWrites.last == text { return }
+        recentRemoteWrites.append(text)
+        if recentRemoteWrites.count > recentRemoteWritesCap {
+            recentRemoteWrites.removeFirst(recentRemoteWrites.count - recentRemoteWritesCap)
+        }
+    }
+
+    private func shouldIgnoreLocalChange(_ text: String) -> Bool {
+        return recentRemoteWrites.contains(text)
+    }
+
+    private func startPasteboardMonitor() {
+        pasteboardTimer?.invalidate()
+        pasteboardChangeCount = NSPasteboard.general.changeCount
+        pasteboardTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            let pb = NSPasteboard.general
+            let cc = pb.changeCount
+            if cc == self.pasteboardChangeCount { return }
+            self.pasteboardChangeCount = cc
+            guard let text = pb.string(forType: .string) else { return }
+            if self.shouldIgnoreLocalChange(text) { return }
+            do {
+                try self.node?.sendClipboardText(text: text)
+            } catch {
+                self.showError("Broadcast failed: \(error)")
+            }
+        }
+    }
     private func setupMenuBarApp() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem?.button?.title = "📋"

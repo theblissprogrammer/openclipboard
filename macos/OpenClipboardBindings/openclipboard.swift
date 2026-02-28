@@ -527,13 +527,19 @@ public protocol ClipboardNodeProtocol: AnyObject, Sendable {
     
     func peerId()  -> String
     
+    func sendClipboardText(text: String) throws 
+    
     func startDiscovery(deviceName: String, handler: DiscoveryHandler) throws 
     
     func startListener(port: UInt16, handler: EventHandler) throws 
     
+    func startSync(port: UInt16, deviceName: String, handler: EventHandler) throws 
+    
     func stop() 
     
     func stopDiscovery() 
+    
+    func stopSync() 
     
 }
 open class ClipboardNode: ClipboardNodeProtocol, @unchecked Sendable {
@@ -611,6 +617,13 @@ open func peerId() -> String  {
 })
 }
     
+open func sendClipboardText(text: String)throws   {try rustCallWithError(FfiConverterTypeOpenClipboardError_lift) {
+    uniffi_openclipboard_ffi_fn_method_clipboardnode_send_clipboard_text(self.uniffiClonePointer(),
+        FfiConverterString.lower(text),$0
+    )
+}
+}
+    
 open func startDiscovery(deviceName: String, handler: DiscoveryHandler)throws   {try rustCallWithError(FfiConverterTypeOpenClipboardError_lift) {
     uniffi_openclipboard_ffi_fn_method_clipboardnode_start_discovery(self.uniffiClonePointer(),
         FfiConverterString.lower(deviceName),
@@ -627,6 +640,15 @@ open func startListener(port: UInt16, handler: EventHandler)throws   {try rustCa
 }
 }
     
+open func startSync(port: UInt16, deviceName: String, handler: EventHandler)throws   {try rustCallWithError(FfiConverterTypeOpenClipboardError_lift) {
+    uniffi_openclipboard_ffi_fn_method_clipboardnode_start_sync(self.uniffiClonePointer(),
+        FfiConverterUInt16.lower(port),
+        FfiConverterString.lower(deviceName),
+        FfiConverterCallbackInterfaceEventHandler_lower(handler),$0
+    )
+}
+}
+    
 open func stop()  {try! rustCall() {
     uniffi_openclipboard_ffi_fn_method_clipboardnode_stop(self.uniffiClonePointer(),$0
     )
@@ -635,6 +657,12 @@ open func stop()  {try! rustCall() {
     
 open func stopDiscovery()  {try! rustCall() {
     uniffi_openclipboard_ffi_fn_method_clipboardnode_stop_discovery(self.uniffiClonePointer(),$0
+    )
+}
+}
+    
+open func stopSync()  {try! rustCall() {
+    uniffi_openclipboard_ffi_fn_method_clipboardnode_stop_sync(self.uniffiClonePointer(),$0
     )
 }
 }
@@ -1971,16 +1999,25 @@ private let initializationResult: InitializationResult = {
     if (uniffi_openclipboard_ffi_checksum_method_clipboardnode_peer_id() != 3503) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_openclipboard_ffi_checksum_method_clipboardnode_send_clipboard_text() != 29125) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_openclipboard_ffi_checksum_method_clipboardnode_start_discovery() != 28153) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_openclipboard_ffi_checksum_method_clipboardnode_start_listener() != 7176) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_openclipboard_ffi_checksum_method_clipboardnode_start_sync() != 58968) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_openclipboard_ffi_checksum_method_clipboardnode_stop() != 10276) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_openclipboard_ffi_checksum_method_clipboardnode_stop_discovery() != 35689) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_openclipboard_ffi_checksum_method_clipboardnode_stop_sync() != 62029) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_openclipboard_ffi_checksum_method_identity_info() != 2247) {
