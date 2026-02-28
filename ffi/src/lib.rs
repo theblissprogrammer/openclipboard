@@ -356,11 +356,15 @@ impl ClipboardNode {
 
         // Bind synchronously so callers can connect immediately after this returns.
         // (The previous implementation raced: connect could happen before the endpoint was bound.)
-        let bind = format!("0.0.0.0:{}", port).parse().unwrap();
+        // For unit tests and local loopback, bind to localhost.
+        // (Binding to 0.0.0.0 can fail in some CI sandboxes / restricted environments.)
+        let bind = format!("127.0.0.1:{}", port).parse().unwrap();
         let (endpoint, _cert) = match make_server_endpoint(bind) {
             Ok(ep) => ep,
             Err(e) => {
-                handler.on_error(format!("Failed to create server endpoint: {}", e));
+                let msg = format!("Failed to create server endpoint: {}", e);
+                handler.on_error(msg.clone());
+                eprintln!("{msg}");
                 return Err(OpenClipboardError::Other);
             }
         };
