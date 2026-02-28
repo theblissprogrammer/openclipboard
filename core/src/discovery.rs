@@ -44,6 +44,8 @@ pub trait Discovery: Send + Sync {
 pub struct MdnsDiscovery {
     service_type: String,
     peers: Arc<RwLock<HashMap<String, PeerInfo>>>,
+    services: Arc<RwLock<HashMap<String, String>>>, // fullname -> peer_id
+    running: Arc<std::sync::atomic::AtomicBool>,
     mdns: Arc<Mutex<Option<mdns_sd::ServiceDaemon>>>,
     broadcast_tx: broadcast::Sender<DiscoveryEvent>,
     current_service: Arc<Mutex<Option<String>>>,
@@ -53,11 +55,15 @@ impl MdnsDiscovery {
     pub fn new() -> Self {
         let service_type = "_openclipboard._udp.local.".to_string();
         let peers = Arc::new(RwLock::new(HashMap::new()));
+        let services = Arc::new(RwLock::new(HashMap::new()));
         let (broadcast_tx, _broadcast_rx) = broadcast::channel(1024);
+        let running = Arc::new(std::sync::atomic::AtomicBool::new(false));
         
         Self {
             service_type,
             peers,
+            services,
+            running,
             mdns: Arc::new(Mutex::new(None)),
             broadcast_tx,
             current_service: Arc::new(Mutex::new(None)),
@@ -189,12 +195,13 @@ impl Discovery for MdnsDiscovery {
 
         // Start advertising
         self.advertise(info).await?;
+        self.running.store(true, std::sync::atomic::Ordering::SeqCst);
 
-        // Start browsing - for now, simplified implementation
-        // In a full implementation, this would use the mdns-sd event system
-        // but let's make it compile first
-        let _peers = Arc::clone(&self.peers);
-        let _broadcast_tx = self.broadcast_tx.clone();
+        // Start browsing and emit discovery events.
+        let peers = Arc::clone(&self.peers);
+        let services = Arc::clone(&self.services);
+        let running = Arc::clone(&self.running);
+        let broadcast_tx = self.broadcast_tx.clone();
         let service_type = self.service_type.clone();
 
         {
@@ -202,22 +209,79 @@ impl Discovery for MdnsDiscovery {
             if let Some(daemon) = mdns.as_ref() {
                 let daemon = daemon.clone();
                 tokio::spawn(async move {
-                    if let Err(e) = daemon.browse(&service_type) {
-                        eprintln!("mDNS browse failed: {}", e);
-                        return;
-                    }
+                    let receiver = match daemon.browse(&service_type) {
+                        Ok(r) => r,
+                        Err(e) => {
+                            eprintln!("mDNS browse failed: {e}");
+                            return;
+                        }
+                    };
 
-                    // For now, just simulate discovery events for testing
-                    // A proper implementation would listen to mdns-sd events
-                    loop {
-                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                        
-                        // This is a placeholder - the actual implementation would
-                        // process real mDNS events here
-                        
-                        // For now, just log that we're running
-                        // eprintln!("mDNS discovery running...");
-                    }
+                    // mdns-sd uses a blocking receiver; bridge it via spawn_blocking.
+                    let rt = tokio::runtime::Handle::current();
+                    let running = Arc::clone(&running);
+                    tokio::task::spawn_blocking(move || {
+                        use mdns_sd::ServiceEvent;
+                        use std::time::Duration;
+                        while running.load(std::sync::atomic::Ordering::SeqCst) {
+                            let event = match receiver.recv_timeout(Duration::from_millis(500)) {
+                                Ok(ev) => ev,
+                                Err(flume::RecvTimeoutError::Timeout) => continue,
+                                Err(_) => break,
+                            };
+                            let peers = Arc::clone(&peers);
+                            let services = Arc::clone(&services);
+                            let broadcast_tx = broadcast_tx.clone();
+                            rt.block_on(async move {
+                                match event {
+                                    ServiceEvent::ServiceResolved(info) => {
+                                        // Parse and store
+                                        if let Some(peer) = {
+                                            // reuse MdnsDiscovery parsing logic (duplicated here to avoid borrowing self)
+                                            // Extract peer_id and device name from TXT records
+                                            let mut peer_id=None;
+                                            let mut device_name=None;
+                                            let mut port=None;
+                                            for property in info.get_properties().iter() {
+                                                let key=property.key();
+                                                let val=property.val();
+                                                match key {
+                                                    "peer_id" => peer_id = val.map(|v| String::from_utf8_lossy(v).to_string()),
+                                                    "device_name" => device_name = val.map(|v| String::from_utf8_lossy(v).to_string()),
+                                                    "port" => {
+                                                        if let Some(v)=val {
+                                                            if let Ok(s)=String::from_utf8(v.to_vec()) {
+                                                                if let Ok(p)=s.parse::<u16>() { port=Some(p); }
+                                                            }
+                                                        }
+                                                    }
+                                                    _ => {}
+                                                }
+                                            }
+                                            if let (Some(peer_id), Some(device_name), Some(port))=(peer_id, device_name, port) {
+                                                if let Some(addr)=info.get_addresses().iter().find_map(|a| if a.is_ipv4(){Some(*a)} else {None}) {
+                                                    let socket_addr = SocketAddr::new(addr, port);
+                                                    Some(PeerInfo{ peer_id, name: device_name, addr: socket_addr.to_string() })
+                                                } else { None }
+                                            } else { None }
+                                        } {
+                                            let fullname = info.get_fullname().to_string();
+                                            peers.write().await.insert(peer.peer_id.clone(), peer.clone());
+                                            services.write().await.insert(fullname, peer.peer_id.clone());
+                                            let _ = broadcast_tx.send(DiscoveryEvent::PeerDiscovered(peer));
+                                        }
+                                    }
+                                    ServiceEvent::ServiceRemoved(_ty, fullname) => {
+                                        if let Some(peer_id) = services.write().await.remove(&fullname) {
+                                            peers.write().await.remove(&peer_id);
+                                            let _ = broadcast_tx.send(DiscoveryEvent::PeerLost{ peer_id });
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            });
+                        }
+                    });
                 });
             }
         }
@@ -226,6 +290,8 @@ impl Discovery for MdnsDiscovery {
     }
 
     async fn stop_discovery(&self) -> Result<()> {
+        self.running.store(false, std::sync::atomic::Ordering::SeqCst);
+
         // Unregister current service if any
         if let Some(service_name) = self.current_service.lock().await.take() {
             let mdns = self.mdns.lock().await;
@@ -236,6 +302,7 @@ impl Discovery for MdnsDiscovery {
 
         // Clear peers
         self.peers.write().await.clear();
+        self.services.write().await.clear();
         
         Ok(())
     }

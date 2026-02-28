@@ -60,7 +60,7 @@ async fn quic_persistent_cliptext_sync_under_1s_loopback() {
         Arc::new(disc1),
         SocketAddr::from(([127, 0, 0, 1], 0)),
         "dev1".into(),
-        h1,
+        h1.clone(),
     ).unwrap();
 
     let s2 = SyncService::new(
@@ -76,10 +76,12 @@ async fn quic_persistent_cliptext_sync_under_1s_loopback() {
     s1.start().await.unwrap();
     s2.start().await.unwrap();
 
-    // Wait for connection establishment.
+    // Wait for connection establishment on both sides.
     let start = std::time::Instant::now();
     while start.elapsed() < std::time::Duration::from_secs(2) {
-        if !h2.connected.lock().unwrap().is_empty() {
+        let c1 = !h1.connected.lock().unwrap().is_empty();
+        let c2 = !h2.connected.lock().unwrap().is_empty();
+        if c1 && c2 {
             break;
         }
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
