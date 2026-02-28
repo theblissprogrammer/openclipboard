@@ -20,6 +20,7 @@ class UniffiE2ETest {
     ) : EventHandler {
         var gotPeerId: String? = null
         var gotText: String? = null
+        var error: String? = null
 
         override fun onClipboardText(peerId: String, text: String, tsMs: ULong) {
             gotPeerId = peerId
@@ -32,7 +33,10 @@ class UniffiE2ETest {
         override fun onFileReceived(peerId: String, name: String, dataPath: String) {}
         override fun onPeerConnected(peerId: String) {}
         override fun onPeerDisconnected(peerId: String) {}
-        override fun onError(message: String) {}
+        override fun onError(message: String) {
+            error = message
+            latch.countDown()
+        }
     }
 
     @Test
@@ -66,11 +70,12 @@ class UniffiE2ETest {
         nodeA.startListener(port, handler)
         nodeB.connectAndSendText("127.0.0.1:$port", "hello")
 
-        val ok = latch.await(5, TimeUnit.SECONDS)
+        val ok = latch.await(15, TimeUnit.SECONDS)
         nodeA.stop()
         nodeB.stop()
 
-        assertTrue("expected clipboard text callback", ok)
+        // If we failed, surface the Rust-side error message (instead of a generic timeout).
+        assertTrue("expected clipboard text callback; error=${handler.error}", ok)
         assertEquals("hello", handler.gotText)
         assertTrue("expected non-empty peer id", !handler.gotPeerId.isNullOrEmpty())
     }

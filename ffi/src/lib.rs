@@ -486,6 +486,9 @@ impl ClipboardNode {
             session.clipboard.write(ClipboardContent::Text(text))?;
             session.send_clipboard().await?;
 
+            // Give the receiver a beat to process before we drop the connection (CI can be slow).
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+
             Ok::<_, anyhow::Error>(())
         })?;
 

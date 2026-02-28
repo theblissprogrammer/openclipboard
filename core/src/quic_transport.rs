@@ -9,6 +9,7 @@ use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tokio::io::AsyncWriteExt;
 
 /// rustls verifier that accepts any server certificate.
 ///
@@ -85,6 +86,8 @@ impl Connection for QuicConnection {
         let mut send = self.send.lock().await;
         send.write_all(&len).await?;
         send.write_all(&bytes).await?;
+        // Ensure bytes are pushed promptly (important for short-lived connections / tests).
+        send.flush().await?;
         Ok(())
     }
 
