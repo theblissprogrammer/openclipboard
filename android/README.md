@@ -8,11 +8,14 @@ Android client app for OpenClipboard, built with **Kotlin** + **Jetpack Compose*
 - **LAN discovery:** shows nearby peers on the local network.
 - **Pairing UI (v1):** initiator/responder flow using init/response strings + a 6‑digit confirmation code.
 - **Trust store:** paired devices are stored locally and shown under paired devices.
+- **Mesh clipboard sync:** clipboard changes can fan out to **all trusted peers** on the LAN.
+- **Clipboard history (cross-device):** browse recent clipboard entries across all devices; tap to recall locally (no broadcast).
 - **Foreground service (“Background Sync”):** keeps a listener running so the device can receive connections/updates while the app is not in the foreground.
+- **Optional keyboard (IME):** "OpenClipboard (History)" keyboard for quick paste while typing.
 
 ## Prerequisites (local development)
 
-- Android SDK (API 34 recommended)
+- Android SDK (API 35 recommended)
 - Java 17
 - Android NDK (CI uses `26.1.10909125`)
 - Rust toolchain
@@ -86,3 +89,7 @@ OpenClipboard includes an optional **history-only keyboard** that can paste from
 - The app uses a **foreground service** for Background Sync.
 - On Android 13+ (SDK 33+), starting Background Sync may prompt for **Notification** permission (for the ongoing notification).
 - If background behavior is unreliable, disable battery optimization for OpenClipboard.
+
+### Identity + trust store files
+
+Android stores `identity.json` and `trust.json` in the app’s private storage (`context.filesDir`). If you **reinstall** the APK or **clear app storage**, those files are wiped and you’ll need to generate a new identity and re-pair.

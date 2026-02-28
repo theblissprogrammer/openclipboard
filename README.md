@@ -38,9 +38,11 @@ OpenClipboard is distributed as CI artifacts via the **Build Artifacts** workflo
 
 ---
 
-## Pairing two devices (MVP flow)
+## Pairing devices (MVP flow)
 
 Pairing is currently done by exchanging short strings ("init" / "response") and confirming a **6‑digit code**.
+
+> You can pair **more than 2 devices**. Once multiple devices are trusted, OpenClipboard runs in **mesh mode**: clipboard changes from any device fan out to all other trusted peers on the LAN.
 
 On **Device A** (Initiator):
 1. Open **Pair Device**.
@@ -66,6 +68,15 @@ After confirmation, both devices add each other to their local trust store.
 
 ---
 
+## Clipboard History (cross-device)
+
+Both apps keep a **clipboard history** that records clipboard text received from (and sent by) all paired devices.
+
+- In the Android/macOS UI, you can open **Clipboard History**, tap an entry to **recall** it.
+- **Recall is local-only**: selecting an entry copies it to your current clipboard **without broadcasting** it to other peers.
+
+---
+
 ## Android: enable the OpenClipboard keyboard (history-only IME)
 
 OpenClipboard ships with an optional **history-only keyboard** so you can paste synced clipboard history into any app.
@@ -88,13 +99,14 @@ To keep the Android device listening for nearby peers and incoming clipboard upd
 
 ## Troubleshooting
 
-- **Same Wi‑Fi / same network:** discovery and connections are LAN-first; verify both devices are on the same Wi‑Fi (and not isolated guest networks).
+- **Same Wi‑Fi / same network:** discovery and connections are LAN-first; verify devices are on the same Wi‑Fi (and not isolated guest networks).
 - **Discovery can take a moment:** allow ~10–30 seconds for devices to appear, especially after toggling Wi‑Fi.
 - **Permissions:**
   - Android 13+: allow notification permission for the foreground-service notification.
   - Ensure the app is allowed to run in the background.
 - **Battery optimization (Android):** disable battery optimization for OpenClipboard if the foreground service stops or discovery is flaky.
 - **If pairing strings fail:** ensure you copied the full init/response string (no truncation/extra whitespace).
+- **"No identity/trust store found" (Android):** those files live inside the app sandbox (`filesDir`). If you reinstall the APK or clear app storage, you will need to re-pair.
 
 ---
 
