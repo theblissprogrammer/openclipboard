@@ -12,6 +12,8 @@ import uniffi.openclipboard.ClipboardHistoryEntry
 import uniffi.openclipboard.OpenClipboardException
 import uniffi.openclipboard.clipboardNodeNew
 import uniffi.openclipboard.trustStoreOpen
+import uniffi.openclipboard.identityGenerate
+import uniffi.openclipboard.identityLoad
 import java.io.File
 
 object OpenClipboardAppState {
@@ -296,6 +298,28 @@ object OpenClipboardAppState {
     fun trustStorePath(context: Context): String = File(context.filesDir, "trust.json").absolutePath
 
     fun identityPath(context: Context): String = File(context.filesDir, "identity.json").absolutePath
+
+    /**
+     * Ensure an identity exists on disk and return it.
+     *
+     * This avoids UI flows (like PairDialog) failing when the app was just installed
+     * and the identity hasn't been generated yet.
+     */
+    fun getOrCreateIdentity(context: Context): uniffi.openclipboard.Identity {
+        val path = identityPath(context)
+        return try {
+            identityLoad(path)
+        } catch (_: Exception) {
+            val id = identityGenerate()
+            // Best-effort persist so subsequent loads succeed.
+            try {
+                id.save(path)
+            } catch (_: Exception) {
+                // ignore
+            }
+            id
+        }
+    }
 
     data class ResetResult(
         val identityDeleted: Boolean,

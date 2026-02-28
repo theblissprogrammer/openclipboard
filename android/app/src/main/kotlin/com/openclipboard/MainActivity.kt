@@ -813,8 +813,7 @@ fun PairDialog(
     var error by remember { mutableStateOf<String?>(null) }
 
     fun myIdentityInfo(): Pair<String, String> {
-        val idPath = OpenClipboardAppState.identityPath(context)
-        val id = uniffi.openclipboard.identityLoad(idPath)
+        val id = OpenClipboardAppState.getOrCreateIdentity(context)
         return id.peerId() to id.pubkeyB64()
     }
 
