@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  rust-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run Rust tests
+        run: |
+          cargo test --quiet
+
+  e2e-loopback:
+    runs-on: ubuntu-latest
+    needs: rust-tests
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build E2E harness
+        run: cargo build -p openclipboard --bin openclipboard_e2e
+
+      - name: QUIC loopback E2E (text)
+        run: |
+          set -euo pipefail
+          LISTEN_OUT="$(mktemp)"
+          ./target/debug/openclipboard_e2e listen --bind 127.0.0.1:18455 --timeout-ms 15000 > "$LISTEN_OUT" &
+          LISTENER_PID=$!
+
+          # Give listener time to bind.
+          sleep 0.5
+
+          ./target/debug/openclipboard_e2e send-text --addr 127.0.0.1:18455 --text "hello-ci"
+
+          # Wait for listener to exit or fail the job.
+          wait $LISTENER_PID
+
+          cat "$LISTEN_OUT"
+          grep -q '"text":"hello-ci"' "$LISTEN_OUT"
