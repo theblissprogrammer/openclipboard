@@ -170,6 +170,9 @@ jobs:
         
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v4
+      with:
+        gradle-version: 8.7
+        validate-wrappers: false
 
     - name: Run Android JVM unit tests
       run: |
