@@ -15,6 +15,21 @@ struct OpenClipboardApp: App {
     }
 }
 
+// MARK: - Real ClipboardProvider using NSPasteboard
+
+final class MacClipboardProvider: ClipboardCallback, @unchecked Sendable {
+    func readText() -> String? {
+        return NSPasteboard.general.string(forType: .string)
+    }
+
+    func writeText(text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+}
+
+// MARK: - Event Handler
+
 final class MacEventHandler: EventHandler {
     private let onEvent: @Sendable (Event) -> Void
 
@@ -51,6 +66,8 @@ final class MacEventHandler: EventHandler {
     }
 }
 
+// MARK: - Discovery Handler
+
 final class MacDiscoveryHandler: DiscoveryHandler {
     private let onEvent: @Sendable (Event) -> Void
 
@@ -72,6 +89,8 @@ final class MacDiscoveryHandler: DiscoveryHandler {
     }
 }
 
+// MARK: - App Delegate
+
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
@@ -80,14 +99,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var node: ClipboardNode?
     private var handler: MacEventHandler?
     private var discoveryHandler: MacDiscoveryHandler?
+    private var clipboardProvider: MacClipboardProvider?
 
     private var connectedPeers: [String] = []
-
-    // Phase 3: local clipboard monitoring + echo suppression.
-    private var pasteboardChangeCount: Int = NSPasteboard.general.changeCount
-    private var pasteboardTimer: Timer?
-    private var recentRemoteWrites: [String] = []
-    private let recentRemoteWritesCap: Int = 20
 
     struct NearbyPeer {
         var peerId: String
@@ -102,11 +116,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var pairingQRWindowController: PairingQRWindowController?
 
+    // History size limit (stored in UserDefaults)
+    private var historySizeLimit: UInt32 {
+        let val = UserDefaults.standard.integer(forKey: "historySizeLimit")
+        return val > 0 ? UInt32(val) : 50
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMenuBarApp()
         requestNotificationAuthorizationIfNeeded()
         wireUpFFI()
     }
+
+    // MARK: - FFI Setup
 
     private func wireUpFFI() {
         if node != nil { return }
@@ -124,10 +146,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
 
+            let provider = MacClipboardProvider()
+            self.clipboardProvider = provider
+
             if let handler = self.handler {
                 let name = Host.current().localizedName ?? "macOS"
-                try node.startSync(port: listenerPort, deviceName: name, handler: handler)
-                startPasteboardMonitor()
+                // Use start_mesh instead of start_sync — handles clipboard polling + broadcast automatically
+                try node.startMesh(
+                    port: listenerPort,
+                    deviceName: name,
+                    handler: handler,
+                    provider: provider,
+                    pollIntervalMs: 250
+                )
             }
 
             self.discoveryHandler = MacDiscoveryHandler { [weak self] event in
@@ -155,6 +186,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    // MARK: - Event Handling
+
     private func handle(_ event: MacEventHandler.Event) {
         switch event {
         case let .peerConnected(peerId):
@@ -168,13 +201,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             updateMenu()
 
         case let .clipboardText(peerId, text, _):
-            // Put received text on the system clipboard (MVP behavior).
-            noteRemoteWrite(text)
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(text, forType: .string)
-
-            // Also show a small notification.
-            postUserNotification(title: "Clipboard received", body: "From \(peerId)")
+            // Mesh handles writing to clipboard via ClipboardCallback.
+            // Just show a notification and refresh history menu.
+            let preview = text.count > 50 ? String(text.prefix(50)) + "…" : text
+            postUserNotification(title: "Clipboard received", body: "From \(peerId): \(preview)")
+            updateMenu()
 
         case let .fileReceived(peerId, name, dataPath):
             postUserNotification(title: "File received", body: "\(name) from \(peerId) saved to \(dataPath)")
@@ -184,46 +215,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    // MARK: - Menu Bar
 
-    private func noteRemoteWrite(_ text: String) {
-        if recentRemoteWrites.last == text { return }
-        recentRemoteWrites.append(text)
-        if recentRemoteWrites.count > recentRemoteWritesCap {
-            recentRemoteWrites.removeFirst(recentRemoteWrites.count - recentRemoteWritesCap)
-        }
-    }
-
-    private func shouldIgnoreLocalChange(_ text: String) -> Bool {
-        return recentRemoteWrites.contains(text)
-    }
-
-    private func startPasteboardMonitor() {
-        pasteboardTimer?.invalidate()
-        pasteboardChangeCount = NSPasteboard.general.changeCount
-
-        // Swift 6 strict concurrency: Timer block is @Sendable; hop back to MainActor.
-        pasteboardTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            Task { @MainActor in
-                self.pollPasteboardAndBroadcast()
-            }
-        }
-    }
-
-    @MainActor
-    private func pollPasteboardAndBroadcast() {
-        let pb = NSPasteboard.general
-        let cc = pb.changeCount
-        if cc == pasteboardChangeCount { return }
-        pasteboardChangeCount = cc
-        guard let text = pb.string(forType: .string) else { return }
-        if shouldIgnoreLocalChange(text) { return }
-        do {
-            try node?.sendClipboardText(text: text)
-        } catch {
-            showError("Broadcast failed: \(error)")
-        }
-    }
     private func setupMenuBarApp() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem?.button?.title = "📋"
@@ -256,6 +249,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
+        // Connected Peers
         menu.addItem(NSMenuItem(title: "Connected Peers", action: nil, keyEquivalent: ""))
         if connectedPeers.isEmpty {
             let noPeersItem = NSMenuItem(title: "  None", action: nil, keyEquivalent: "")
@@ -263,7 +257,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(noPeersItem)
         } else {
             for peer in connectedPeers {
-                let peerItem = NSMenuItem(title: "  \(peer)", action: nil, keyEquivalent: "")
+                let isOnline = true // connected peers are online by definition
+                let status = isOnline ? "🟢" : "⚪"
+                let peerItem = NSMenuItem(title: "  \(status) \(peer)", action: nil, keyEquivalent: "")
                 peerItem.isEnabled = false
                 menu.addItem(peerItem)
             }
@@ -271,6 +267,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
+        // Clipboard History Submenu
+        let historyMenuItem = NSMenuItem(title: "Clipboard History", action: nil, keyEquivalent: "")
+        let historyMenu = NSMenu(title: "Clipboard History")
+        historyMenuItem.submenu = historyMenu
+        buildHistorySubmenu(historyMenu)
+        menu.addItem(historyMenuItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        // Nearby Devices
         menu.addItem(NSMenuItem(title: "Nearby Devices", action: nil, keyEquivalent: ""))
         let nearbyList = nearbyPeers.values.sorted { $0.name < $1.name }
         if nearbyList.isEmpty {
@@ -280,7 +286,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             for p in nearbyList {
                 let trusted = isTrustedPeer(peerId: p.peerId)
-                let title = "  \(p.name) — \(p.peerId.prefix(8))…" + (trusted ? "" : " (unpaired)")
+                let online = connectedPeers.contains(p.peerId)
+                let status = online ? "🟢" : (trusted ? "⚪" : "")
+                let title = "  \(status) \(p.name) — \(p.peerId.prefix(8))…" + (trusted ? "" : " (unpaired)")
                 let item = NSMenuItem(title: title, action: #selector(pairWithNearby(_:)), keyEquivalent: "")
                 item.target = self
                 item.representedObject = p
@@ -308,6 +316,90 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q"))
     }
 
+    // MARK: - History Submenu
+
+    private func buildHistorySubmenu(_ menu: NSMenu) {
+        guard let node else {
+            let item = NSMenuItem(title: "Not running", action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            menu.addItem(item)
+            return
+        }
+
+        let entries = node.getClipboardHistory(limit: historySizeLimit)
+
+        if entries.isEmpty {
+            let item = NSMenuItem(title: "No history", action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            menu.addItem(item)
+            return
+        }
+
+        // Show "All" entries
+        let allItem = NSMenuItem(title: "All Devices", action: nil, keyEquivalent: "")
+        allItem.isEnabled = false
+        menu.addItem(allItem)
+        menu.addItem(NSMenuItem.separator())
+
+        for entry in entries.prefix(20) {
+            let item = makeHistoryMenuItem(entry)
+            menu.addItem(item)
+        }
+
+        // Group by device — add submenus per peer
+        let peerNames = Set(entries.map { $0.sourcePeer })
+        if peerNames.count > 1 {
+            menu.addItem(NSMenuItem.separator())
+            let byDeviceItem = NSMenuItem(title: "By Device", action: nil, keyEquivalent: "")
+            byDeviceItem.isEnabled = false
+            menu.addItem(byDeviceItem)
+
+            for peerName in peerNames.sorted() {
+                let peerItem = NSMenuItem(title: peerName, action: nil, keyEquivalent: "")
+                let peerMenu = NSMenu(title: peerName)
+                peerItem.submenu = peerMenu
+
+                let peerEntries = node.getClipboardHistoryForPeer(peerName: peerName, limit: historySizeLimit)
+                for entry in peerEntries.prefix(20) {
+                    peerMenu.addItem(makeHistoryMenuItem(entry))
+                }
+                menu.addItem(peerItem)
+            }
+        }
+    }
+
+    private func makeHistoryMenuItem(_ entry: ClipboardHistoryEntry) -> NSMenuItem {
+        let preview = entry.content.count > 60 ? String(entry.content.prefix(60)) + "…" : entry.content
+        // Replace newlines with spaces for menu display
+        let cleanPreview = preview.replacingOccurrences(of: "\n", with: " ")
+        let timeAgo = relativeTimeString(timestampMs: entry.timestamp)
+        let title = "  \(cleanPreview)  (\(entry.sourcePeer), \(timeAgo))"
+
+        let item = NSMenuItem(title: title, action: #selector(recallHistoryEntry(_:)), keyEquivalent: "")
+        item.target = self
+        item.representedObject = entry.id
+        return item
+    }
+
+    @objc private func recallHistoryEntry(_ sender: NSMenuItem) {
+        guard let entryId = sender.representedObject as? String, let node else { return }
+        do {
+            _ = try node.recallFromHistory(entryId: entryId)
+        } catch {
+            showError("Failed to recall: \(error)")
+        }
+    }
+
+    private func relativeTimeString(timestampMs: UInt64) -> String {
+        let seconds = (UInt64(Date().timeIntervalSince1970 * 1000) - timestampMs) / 1000
+        if seconds < 60 { return "just now" }
+        if seconds < 3600 { return "\(seconds / 60)m ago" }
+        if seconds < 86400 { return "\(seconds / 3600)h ago" }
+        return "\(seconds / 86400)d ago"
+    }
+
+    // MARK: - Trust
+
     private func isTrustedPeer(peerId: String) -> Bool {
         do {
             let store = try trustStoreOpen(path: trustStoreDefaultPath())
@@ -316,6 +408,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return false
         }
     }
+
+    // MARK: - Pairing
 
     @objc private func pairWithNearby(_ sender: NSMenuItem) {
         guard let p = sender.representedObject as? NearbyPeer else {
@@ -485,31 +579,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         var bytes = [UInt8](repeating: 0, count: 32)
         let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
         if status != errSecSuccess {
-            // Fallback
             for i in 0..<bytes.count { bytes[i] = UInt8.random(in: 0...255) }
         }
         return bytes
     }
 
-    private struct FinalizeInfo {
-        var code: String
-        var remotePeerId: String
-        var remoteName: String
-        var remotePkB64: String
-    }
-
-    private func finalizePairing(initQr: String, respQr: String) throws -> FinalizeInfo {
-        let initPayload = try pairingPayloadFromQrString(s: initQr)
-        let respPayload = try pairingPayloadFromQrString(s: respQr)
-
-        if initPayload.nonce() != respPayload.nonce() {
-            throw NSError(domain: "OpenClipboard", code: 1, userInfo: [NSLocalizedDescriptionKey: "nonce mismatch"])
-        }
-
-        let code = deriveConfirmationCode(nonce: initPayload.nonce(), peerAId: initPayload.peerId(), peerBId: respPayload.peerId())
-        let remotePkB64 = Data(respPayload.identityPk()).base64EncodedString()
-        return FinalizeInfo(code: code, remotePeerId: respPayload.peerId(), remoteName: respPayload.name(), remotePkB64: remotePkB64)
-    }
+    // MARK: - Actions
 
     @objc private func sendClipboard() {
         guard let node else {
@@ -553,15 +628,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
     }
 
+    // MARK: - Sync Lifecycle
+
     private func stopSyncRuntime() {
         syncEnabled = false
-        pasteboardTimer?.invalidate()
-        pasteboardTimer = nil
 
         node?.stop()
         node = nil
         handler = nil
         discoveryHandler = nil
+        clipboardProvider = nil
 
         connectedPeers.removeAll()
         nearbyPeers.removeAll()
@@ -581,13 +657,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApplication.shared.terminate(self)
     }
 
+    // MARK: - Notifications
+
     private func requestNotificationAuthorizationIfNeeded() {
         let center = UNUserNotificationCenter.current()
         center.getNotificationSettings { settings in
             if settings.authorizationStatus != .notDetermined { return }
-            center.requestAuthorization(options: [.alert, .sound]) { _, _ in
-                // Best-effort.
-            }
+            center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
         }
     }
 
@@ -603,13 +679,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             trigger: nil
         )
 
-        UNUserNotificationCenter.current().add(request) { _ in
-            // Best-effort.
-        }
+        UNUserNotificationCenter.current().add(request) { _ in }
     }
 
     private func showError(_ message: String) {
-        // Avoid spamming alerts if the app is in background; use notification.
         postUserNotification(title: "OpenClipboard", body: message)
     }
 }

@@ -251,6 +251,20 @@ typedef void (*UniffiForeignFutureCompleteVoid)(uint64_t, UniffiForeignFutureStr
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_CLIPBOARD_CALLBACK_METHOD0
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_CLIPBOARD_CALLBACK_METHOD0
+typedef void (*UniffiCallbackInterfaceClipboardCallbackMethod0)(uint64_t, RustBuffer* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_CLIPBOARD_CALLBACK_METHOD1
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_CLIPBOARD_CALLBACK_METHOD1
+typedef void (*UniffiCallbackInterfaceClipboardCallbackMethod1)(uint64_t, RustBuffer, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
 #ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_DISCOVERY_HANDLER_METHOD0
 #define UNIFFI_FFIDEF_CALLBACK_INTERFACE_DISCOVERY_HANDLER_METHOD0
 typedef void (*UniffiCallbackInterfaceDiscoveryHandlerMethod0)(uint64_t, RustBuffer, RustBuffer, RustBuffer, void* _Nonnull, 
@@ -300,6 +314,15 @@ typedef void (*UniffiCallbackInterfaceEventHandlerMethod4)(uint64_t, RustBuffer,
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_CLIPBOARD_CALLBACK
+#define UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_CLIPBOARD_CALLBACK
+typedef struct UniffiVTableCallbackInterfaceClipboardCallback {
+    UniffiCallbackInterfaceClipboardCallbackMethod0 _Nonnull readText;
+    UniffiCallbackInterfaceClipboardCallbackMethod1 _Nonnull writeText;
+    UniffiCallbackInterfaceFree _Nonnull uniffiFree;
+} UniffiVTableCallbackInterfaceClipboardCallback;
+
+#endif
 #ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_DISCOVERY_HANDLER
 #define UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_DISCOVERY_HANDLER
 typedef struct UniffiVTableCallbackInterfaceDiscoveryHandler {
@@ -341,9 +364,24 @@ void uniffi_openclipboard_ffi_fn_method_clipboardnode_connect_and_send_file(void
 void uniffi_openclipboard_ffi_fn_method_clipboardnode_connect_and_send_text(void*_Nonnull ptr, RustBuffer addr, RustBuffer text, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_FN_METHOD_CLIPBOARDNODE_GET_CLIPBOARD_HISTORY
+#define UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_FN_METHOD_CLIPBOARDNODE_GET_CLIPBOARD_HISTORY
+RustBuffer uniffi_openclipboard_ffi_fn_method_clipboardnode_get_clipboard_history(void*_Nonnull ptr, uint32_t limit, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_FN_METHOD_CLIPBOARDNODE_GET_CLIPBOARD_HISTORY_FOR_PEER
+#define UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_FN_METHOD_CLIPBOARDNODE_GET_CLIPBOARD_HISTORY_FOR_PEER
+RustBuffer uniffi_openclipboard_ffi_fn_method_clipboardnode_get_clipboard_history_for_peer(void*_Nonnull ptr, RustBuffer peer_name, uint32_t limit, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_FN_METHOD_CLIPBOARDNODE_PEER_ID
 #define UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_FN_METHOD_CLIPBOARDNODE_PEER_ID
 RustBuffer uniffi_openclipboard_ffi_fn_method_clipboardnode_peer_id(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_FN_METHOD_CLIPBOARDNODE_RECALL_FROM_HISTORY
+#define UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_FN_METHOD_CLIPBOARDNODE_RECALL_FROM_HISTORY
+RustBuffer uniffi_openclipboard_ffi_fn_method_clipboardnode_recall_from_history(void*_Nonnull ptr, RustBuffer entry_id, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_FN_METHOD_CLIPBOARDNODE_SEND_CLIPBOARD_TEXT
@@ -359,6 +397,11 @@ void uniffi_openclipboard_ffi_fn_method_clipboardnode_start_discovery(void*_Nonn
 #ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_FN_METHOD_CLIPBOARDNODE_START_LISTENER
 #define UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_FN_METHOD_CLIPBOARDNODE_START_LISTENER
 void uniffi_openclipboard_ffi_fn_method_clipboardnode_start_listener(void*_Nonnull ptr, uint16_t port, uint64_t handler, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_FN_METHOD_CLIPBOARDNODE_START_MESH
+#define UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_FN_METHOD_CLIPBOARDNODE_START_MESH
+void uniffi_openclipboard_ffi_fn_method_clipboardnode_start_mesh(void*_Nonnull ptr, uint16_t port, RustBuffer device_name, uint64_t handler, uint64_t provider, uint64_t poll_interval_ms, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_FN_METHOD_CLIPBOARDNODE_START_SYNC
@@ -484,6 +527,11 @@ RustBuffer uniffi_openclipboard_ffi_fn_method_truststore_list(void*_Nonnull ptr,
 #ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_FN_METHOD_TRUSTSTORE_REMOVE
 #define UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_FN_METHOD_TRUSTSTORE_REMOVE
 int8_t uniffi_openclipboard_ffi_fn_method_truststore_remove(void*_Nonnull ptr, RustBuffer peer_id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_FN_INIT_CALLBACK_VTABLE_CLIPBOARDCALLBACK
+#define UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_FN_INIT_CALLBACK_VTABLE_CLIPBOARDCALLBACK
+void uniffi_openclipboard_ffi_fn_init_callback_vtable_clipboardcallback(const UniffiVTableCallbackInterfaceClipboardCallback* _Nonnull vtable
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_FN_INIT_CALLBACK_VTABLE_DISCOVERYHANDLER
@@ -890,9 +938,27 @@ uint16_t uniffi_openclipboard_ffi_checksum_method_clipboardnode_connect_and_send
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_CHECKSUM_METHOD_CLIPBOARDNODE_GET_CLIPBOARD_HISTORY
+#define UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_CHECKSUM_METHOD_CLIPBOARDNODE_GET_CLIPBOARD_HISTORY
+uint16_t uniffi_openclipboard_ffi_checksum_method_clipboardnode_get_clipboard_history(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_CHECKSUM_METHOD_CLIPBOARDNODE_GET_CLIPBOARD_HISTORY_FOR_PEER
+#define UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_CHECKSUM_METHOD_CLIPBOARDNODE_GET_CLIPBOARD_HISTORY_FOR_PEER
+uint16_t uniffi_openclipboard_ffi_checksum_method_clipboardnode_get_clipboard_history_for_peer(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_CHECKSUM_METHOD_CLIPBOARDNODE_PEER_ID
 #define UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_CHECKSUM_METHOD_CLIPBOARDNODE_PEER_ID
 uint16_t uniffi_openclipboard_ffi_checksum_method_clipboardnode_peer_id(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_CHECKSUM_METHOD_CLIPBOARDNODE_RECALL_FROM_HISTORY
+#define UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_CHECKSUM_METHOD_CLIPBOARDNODE_RECALL_FROM_HISTORY
+uint16_t uniffi_openclipboard_ffi_checksum_method_clipboardnode_recall_from_history(void
     
 );
 #endif
@@ -911,6 +977,12 @@ uint16_t uniffi_openclipboard_ffi_checksum_method_clipboardnode_start_discovery(
 #ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_CHECKSUM_METHOD_CLIPBOARDNODE_START_LISTENER
 #define UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_CHECKSUM_METHOD_CLIPBOARDNODE_START_LISTENER
 uint16_t uniffi_openclipboard_ffi_checksum_method_clipboardnode_start_listener(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_CHECKSUM_METHOD_CLIPBOARDNODE_START_MESH
+#define UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_CHECKSUM_METHOD_CLIPBOARDNODE_START_MESH
+uint16_t uniffi_openclipboard_ffi_checksum_method_clipboardnode_start_mesh(void
     
 );
 #endif
@@ -1025,6 +1097,18 @@ uint16_t uniffi_openclipboard_ffi_checksum_method_truststore_list(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_CHECKSUM_METHOD_TRUSTSTORE_REMOVE
 #define UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_CHECKSUM_METHOD_TRUSTSTORE_REMOVE
 uint16_t uniffi_openclipboard_ffi_checksum_method_truststore_remove(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_CHECKSUM_METHOD_CLIPBOARDCALLBACK_READ_TEXT
+#define UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_CHECKSUM_METHOD_CLIPBOARDCALLBACK_READ_TEXT
+uint16_t uniffi_openclipboard_ffi_checksum_method_clipboardcallback_read_text(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_CHECKSUM_METHOD_CLIPBOARDCALLBACK_WRITE_TEXT
+#define UNIFFI_FFIDEF_UNIFFI_OPENCLIPBOARD_FFI_CHECKSUM_METHOD_CLIPBOARDCALLBACK_WRITE_TEXT
+uint16_t uniffi_openclipboard_ffi_checksum_method_clipboardcallback_write_text(void
     
 );
 #endif

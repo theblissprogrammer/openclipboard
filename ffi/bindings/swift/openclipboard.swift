@@ -438,6 +438,22 @@ fileprivate struct FfiConverterUInt16: FfiConverterPrimitive {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterUInt32: FfiConverterPrimitive {
+    typealias FfiType = UInt32
+    typealias SwiftType = UInt32
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt32 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterUInt64: FfiConverterPrimitive {
     typealias FfiType = UInt64
     typealias SwiftType = UInt64
@@ -525,13 +541,21 @@ public protocol ClipboardNodeProtocol: AnyObject, Sendable {
     
     func connectAndSendText(addr: String, text: String) throws 
     
+    func getClipboardHistory(limit: UInt32)  -> [ClipboardHistoryEntry]
+    
+    func getClipboardHistoryForPeer(peerName: String, limit: UInt32)  -> [ClipboardHistoryEntry]
+    
     func peerId()  -> String
+    
+    func recallFromHistory(entryId: String) throws  -> ClipboardHistoryEntry
     
     func sendClipboardText(text: String) throws 
     
     func startDiscovery(deviceName: String, handler: DiscoveryHandler) throws 
     
     func startListener(port: UInt16, handler: EventHandler) throws 
+    
+    func startMesh(port: UInt16, deviceName: String, handler: EventHandler, provider: ClipboardCallback, pollIntervalMs: UInt64) throws 
     
     func startSync(port: UInt16, deviceName: String, handler: EventHandler) throws 
     
@@ -610,9 +634,34 @@ open func connectAndSendText(addr: String, text: String)throws   {try rustCallWi
 }
 }
     
+open func getClipboardHistory(limit: UInt32) -> [ClipboardHistoryEntry]  {
+    return try!  FfiConverterSequenceTypeClipboardHistoryEntry.lift(try! rustCall() {
+    uniffi_openclipboard_ffi_fn_method_clipboardnode_get_clipboard_history(self.uniffiClonePointer(),
+        FfiConverterUInt32.lower(limit),$0
+    )
+})
+}
+    
+open func getClipboardHistoryForPeer(peerName: String, limit: UInt32) -> [ClipboardHistoryEntry]  {
+    return try!  FfiConverterSequenceTypeClipboardHistoryEntry.lift(try! rustCall() {
+    uniffi_openclipboard_ffi_fn_method_clipboardnode_get_clipboard_history_for_peer(self.uniffiClonePointer(),
+        FfiConverterString.lower(peerName),
+        FfiConverterUInt32.lower(limit),$0
+    )
+})
+}
+    
 open func peerId() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
     uniffi_openclipboard_ffi_fn_method_clipboardnode_peer_id(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+open func recallFromHistory(entryId: String)throws  -> ClipboardHistoryEntry  {
+    return try  FfiConverterTypeClipboardHistoryEntry_lift(try rustCallWithError(FfiConverterTypeOpenClipboardError_lift) {
+    uniffi_openclipboard_ffi_fn_method_clipboardnode_recall_from_history(self.uniffiClonePointer(),
+        FfiConverterString.lower(entryId),$0
     )
 })
 }
@@ -636,6 +685,17 @@ open func startListener(port: UInt16, handler: EventHandler)throws   {try rustCa
     uniffi_openclipboard_ffi_fn_method_clipboardnode_start_listener(self.uniffiClonePointer(),
         FfiConverterUInt16.lower(port),
         FfiConverterCallbackInterfaceEventHandler_lower(handler),$0
+    )
+}
+}
+    
+open func startMesh(port: UInt16, deviceName: String, handler: EventHandler, provider: ClipboardCallback, pollIntervalMs: UInt64)throws   {try rustCallWithError(FfiConverterTypeOpenClipboardError_lift) {
+    uniffi_openclipboard_ffi_fn_method_clipboardnode_start_mesh(self.uniffiClonePointer(),
+        FfiConverterUInt16.lower(port),
+        FfiConverterString.lower(deviceName),
+        FfiConverterCallbackInterfaceEventHandler_lower(handler),
+        FfiConverterCallbackInterfaceClipboardCallback_lower(provider),
+        FfiConverterUInt64.lower(pollIntervalMs),$0
     )
 }
 }
@@ -1201,6 +1261,92 @@ public func FfiConverterTypeTrustStore_lower(_ value: TrustStore) -> UnsafeMutab
 
 
 
+public struct ClipboardHistoryEntry {
+    public var id: String
+    public var content: String
+    public var sourcePeer: String
+    public var timestamp: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, content: String, sourcePeer: String, timestamp: UInt64) {
+        self.id = id
+        self.content = content
+        self.sourcePeer = sourcePeer
+        self.timestamp = timestamp
+    }
+}
+
+#if compiler(>=6)
+extension ClipboardHistoryEntry: Sendable {}
+#endif
+
+
+extension ClipboardHistoryEntry: Equatable, Hashable {
+    public static func ==(lhs: ClipboardHistoryEntry, rhs: ClipboardHistoryEntry) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.content != rhs.content {
+            return false
+        }
+        if lhs.sourcePeer != rhs.sourcePeer {
+            return false
+        }
+        if lhs.timestamp != rhs.timestamp {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(content)
+        hasher.combine(sourcePeer)
+        hasher.combine(timestamp)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeClipboardHistoryEntry: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ClipboardHistoryEntry {
+        return
+            try ClipboardHistoryEntry(
+                id: FfiConverterString.read(from: &buf), 
+                content: FfiConverterString.read(from: &buf), 
+                sourcePeer: FfiConverterString.read(from: &buf), 
+                timestamp: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ClipboardHistoryEntry, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.content, into: &buf)
+        FfiConverterString.write(value.sourcePeer, into: &buf)
+        FfiConverterUInt64.write(value.timestamp, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeClipboardHistoryEntry_lift(_ buf: RustBuffer) throws -> ClipboardHistoryEntry {
+    return try FfiConverterTypeClipboardHistoryEntry.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeClipboardHistoryEntry_lower(_ value: ClipboardHistoryEntry) -> RustBuffer {
+    return FfiConverterTypeClipboardHistoryEntry.lower(value)
+}
+
+
 public struct IdentityInfo {
     public var peerId: String
     public var pubkeyB64: String
@@ -1431,6 +1577,146 @@ extension OpenClipboardError: Foundation.LocalizedError {
 
 
 
+
+
+
+
+public protocol ClipboardCallback: AnyObject, Sendable {
+    
+    func readText()  -> String?
+    
+    func writeText(text: String) 
+    
+}
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceClipboardCallback {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // This creates 1-element array, since this seems to be the only way to construct a const
+    // pointer that we can pass to the Rust code.
+    static let vtable: [UniffiVTableCallbackInterfaceClipboardCallback] = [UniffiVTableCallbackInterfaceClipboardCallback(
+        readText: { (
+            uniffiHandle: UInt64,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> String? in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceClipboardCallback.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.readText(
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterOptionString.lower($0) }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        writeText: { (
+            uniffiHandle: UInt64,
+            text: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceClipboardCallback.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.writeText(
+                     text: try FfiConverterString.lift(text)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            let result = try? FfiConverterCallbackInterfaceClipboardCallback.handleMap.remove(handle: uniffiHandle)
+            if result == nil {
+                print("Uniffi callback interface ClipboardCallback: handle missing in uniffiFree")
+            }
+        }
+    )]
+}
+
+private func uniffiCallbackInitClipboardCallback() {
+    uniffi_openclipboard_ffi_fn_init_callback_vtable_clipboardcallback(UniffiCallbackInterfaceClipboardCallback.vtable)
+}
+
+// FfiConverter protocol for callback interfaces
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterCallbackInterfaceClipboardCallback {
+    fileprivate static let handleMap = UniffiHandleMap<ClipboardCallback>()
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+extension FfiConverterCallbackInterfaceClipboardCallback : FfiConverter {
+    typealias SwiftType = ClipboardCallback
+    typealias FfiType = UInt64
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lift(_ handle: UInt64) throws -> SwiftType {
+        try handleMap.get(handle: handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lower(_ v: SwiftType) -> UInt64 {
+        return handleMap.insert(obj: v)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func write(_ v: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(v))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterCallbackInterfaceClipboardCallback_lift(_ handle: UInt64) throws -> ClipboardCallback {
+    return try FfiConverterCallbackInterfaceClipboardCallback.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterCallbackInterfaceClipboardCallback_lower(_ v: ClipboardCallback) -> UInt64 {
+    return FfiConverterCallbackInterfaceClipboardCallback.lower(v)
+}
 
 
 
@@ -1809,6 +2095,30 @@ public func FfiConverterCallbackInterfaceEventHandler_lower(_ v: EventHandler) -
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
+    typealias SwiftType = String?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterString.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterString.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeTrustRecord: FfiConverterRustBuffer {
     typealias SwiftType = TrustRecord?
 
@@ -1850,6 +2160,31 @@ fileprivate struct FfiConverterSequenceUInt8: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterUInt8.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeClipboardHistoryEntry: FfiConverterRustBuffer {
+    typealias SwiftType = [ClipboardHistoryEntry]
+
+    public static func write(_ value: [ClipboardHistoryEntry], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeClipboardHistoryEntry.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [ClipboardHistoryEntry] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [ClipboardHistoryEntry]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeClipboardHistoryEntry.read(from: &buf))
         }
         return seq
     }
@@ -1996,7 +2331,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_openclipboard_ffi_checksum_method_clipboardnode_connect_and_send_text() != 48151) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_openclipboard_ffi_checksum_method_clipboardnode_get_clipboard_history() != 16113) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_openclipboard_ffi_checksum_method_clipboardnode_get_clipboard_history_for_peer() != 25297) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_openclipboard_ffi_checksum_method_clipboardnode_peer_id() != 3503) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_openclipboard_ffi_checksum_method_clipboardnode_recall_from_history() != 13525) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_openclipboard_ffi_checksum_method_clipboardnode_send_clipboard_text() != 29125) {
@@ -2006,6 +2350,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_openclipboard_ffi_checksum_method_clipboardnode_start_listener() != 7176) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_openclipboard_ffi_checksum_method_clipboardnode_start_mesh() != 46513) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_openclipboard_ffi_checksum_method_clipboardnode_start_sync() != 58968) {
@@ -2065,6 +2412,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_openclipboard_ffi_checksum_method_truststore_remove() != 28281) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_openclipboard_ffi_checksum_method_clipboardcallback_read_text() != 18804) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_openclipboard_ffi_checksum_method_clipboardcallback_write_text() != 24337) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_openclipboard_ffi_checksum_method_discoveryhandler_on_peer_discovered() != 5960) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2087,6 +2440,7 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
 
+    uniffiCallbackInitClipboardCallback()
     uniffiCallbackInitDiscoveryHandler()
     uniffiCallbackInitEventHandler()
     return InitializationResult.ok

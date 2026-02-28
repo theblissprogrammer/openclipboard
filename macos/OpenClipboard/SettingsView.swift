@@ -7,6 +7,7 @@ struct SettingsView: View {
     @State private var newPeerName = ""
     @State private var newPeerQR = ""
     @State private var lastError: String? = nil
+    @AppStorage("historySizeLimit") private var historySizeLimit: Int = 50
 
     var body: some View {
         VStack(spacing: 16) {
@@ -18,6 +19,27 @@ struct SettingsView: View {
                     .foregroundColor(.red)
                     .font(.caption)
             }
+
+            GroupBox(label: Text("Clipboard History")) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("History size limit:")
+                        Picker("", selection: $historySizeLimit) {
+                            Text("25").tag(25)
+                            Text("50").tag(50)
+                            Text("100").tag(100)
+                            Text("200").tag(200)
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(maxWidth: 300)
+                    }
+                    Text("Maximum number of clipboard entries to keep in history.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .padding(8)
+            }
+            .frame(maxWidth: 520)
 
             GroupBox(label: Text("Trusted Peers")) {
                 VStack {
@@ -137,7 +159,7 @@ struct AddPeerView: View {
 
             VStack(alignment: .leading) {
                 Text("Peer Name (optional)")
-                TextField("e.g. Ahmed’s Android", text: $peerName)
+                TextField("e.g. Ahmed's Android", text: $peerName)
                     .textFieldStyle(.roundedBorder)
             }
 

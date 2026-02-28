@@ -375,7 +375,7 @@ private fun findLibraryName(componentName: String): String {
     if (libOverride != null) {
         return libOverride
     }
-    return "uniffi_openclipboard"
+    return "openclipboard_ffi"
 }
 
 private inline fun <reified Lib : Library> loadIndirect(
@@ -654,6 +654,12 @@ internal open class UniffiForeignFutureStructVoid(
 internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
     fun callback(`callbackData`: Long,`result`: UniffiForeignFutureStructVoid.UniffiByValue,)
 }
+internal interface UniffiCallbackInterfaceClipboardCallbackMethod0 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfaceClipboardCallbackMethod1 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`text`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
+}
 internal interface UniffiCallbackInterfaceDiscoveryHandlerMethod0 : com.sun.jna.Callback {
     fun callback(`uniffiHandle`: Long,`peerId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`addr`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
 }
@@ -674,6 +680,25 @@ internal interface UniffiCallbackInterfaceEventHandlerMethod3 : com.sun.jna.Call
 }
 internal interface UniffiCallbackInterfaceEventHandlerMethod4 : com.sun.jna.Callback {
     fun callback(`uniffiHandle`: Long,`message`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+@Structure.FieldOrder("readText", "writeText", "uniffiFree")
+internal open class UniffiVTableCallbackInterfaceClipboardCallback(
+    @JvmField internal var `readText`: UniffiCallbackInterfaceClipboardCallbackMethod0? = null,
+    @JvmField internal var `writeText`: UniffiCallbackInterfaceClipboardCallbackMethod1? = null,
+    @JvmField internal var `uniffiFree`: UniffiCallbackInterfaceFree? = null,
+) : Structure() {
+    class UniffiByValue(
+        `readText`: UniffiCallbackInterfaceClipboardCallbackMethod0? = null,
+        `writeText`: UniffiCallbackInterfaceClipboardCallbackMethod1? = null,
+        `uniffiFree`: UniffiCallbackInterfaceFree? = null,
+    ): UniffiVTableCallbackInterfaceClipboardCallback(`readText`,`writeText`,`uniffiFree`,), Structure.ByValue
+
+   internal fun uniffiSetValue(other: UniffiVTableCallbackInterfaceClipboardCallback) {
+        `readText` = other.`readText`
+        `writeText` = other.`writeText`
+        `uniffiFree` = other.`uniffiFree`
+    }
+
 }
 @Structure.FieldOrder("onPeerDiscovered", "onPeerLost", "uniffiFree")
 internal open class UniffiVTableCallbackInterfaceDiscoveryHandler(
@@ -865,6 +890,17 @@ internal open class UniffiVTableCallbackInterfaceEventHandler(
 
 
 
+
+
+
+
+
+
+
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -902,13 +938,21 @@ fun uniffi_openclipboard_ffi_checksum_method_clipboardnode_connect_and_send_file
 ): Short
 fun uniffi_openclipboard_ffi_checksum_method_clipboardnode_connect_and_send_text(
 ): Short
+fun uniffi_openclipboard_ffi_checksum_method_clipboardnode_get_clipboard_history(
+): Short
+fun uniffi_openclipboard_ffi_checksum_method_clipboardnode_get_clipboard_history_for_peer(
+): Short
 fun uniffi_openclipboard_ffi_checksum_method_clipboardnode_peer_id(
+): Short
+fun uniffi_openclipboard_ffi_checksum_method_clipboardnode_recall_from_history(
 ): Short
 fun uniffi_openclipboard_ffi_checksum_method_clipboardnode_send_clipboard_text(
 ): Short
 fun uniffi_openclipboard_ffi_checksum_method_clipboardnode_start_discovery(
 ): Short
 fun uniffi_openclipboard_ffi_checksum_method_clipboardnode_start_listener(
+): Short
+fun uniffi_openclipboard_ffi_checksum_method_clipboardnode_start_mesh(
 ): Short
 fun uniffi_openclipboard_ffi_checksum_method_clipboardnode_start_sync(
 ): Short
@@ -947,6 +991,10 @@ fun uniffi_openclipboard_ffi_checksum_method_truststore_get(
 fun uniffi_openclipboard_ffi_checksum_method_truststore_list(
 ): Short
 fun uniffi_openclipboard_ffi_checksum_method_truststore_remove(
+): Short
+fun uniffi_openclipboard_ffi_checksum_method_clipboardcallback_read_text(
+): Short
+fun uniffi_openclipboard_ffi_checksum_method_clipboardcallback_write_text(
 ): Short
 fun uniffi_openclipboard_ffi_checksum_method_discoveryhandler_on_peer_discovered(
 ): Short
@@ -1000,6 +1048,7 @@ internal interface UniffiLib : Library {
             val lib = loadIndirect<UniffiLib>(componentName)
             // No need to check the contract version and checksums, since 
             // we already did that with `IntegrityCheckingUniffiLib` above.
+            uniffiCallbackInterfaceClipboardCallback.register(lib)
             uniffiCallbackInterfaceDiscoveryHandler.register(lib)
             uniffiCallbackInterfaceEventHandler.register(lib)
             // Loading of library with integrity check done.
@@ -1021,13 +1070,21 @@ fun uniffi_openclipboard_ffi_fn_method_clipboardnode_connect_and_send_file(`ptr`
 ): Unit
 fun uniffi_openclipboard_ffi_fn_method_clipboardnode_connect_and_send_text(`ptr`: Pointer,`addr`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+fun uniffi_openclipboard_ffi_fn_method_clipboardnode_get_clipboard_history(`ptr`: Pointer,`limit`: Int,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_openclipboard_ffi_fn_method_clipboardnode_get_clipboard_history_for_peer(`ptr`: Pointer,`peerName`: RustBuffer.ByValue,`limit`: Int,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_openclipboard_ffi_fn_method_clipboardnode_peer_id(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_openclipboard_ffi_fn_method_clipboardnode_recall_from_history(`ptr`: Pointer,`entryId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_openclipboard_ffi_fn_method_clipboardnode_send_clipboard_text(`ptr`: Pointer,`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_openclipboard_ffi_fn_method_clipboardnode_start_discovery(`ptr`: Pointer,`deviceName`: RustBuffer.ByValue,`handler`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_openclipboard_ffi_fn_method_clipboardnode_start_listener(`ptr`: Pointer,`port`: Short,`handler`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_openclipboard_ffi_fn_method_clipboardnode_start_mesh(`ptr`: Pointer,`port`: Short,`deviceName`: RustBuffer.ByValue,`handler`: Long,`provider`: Long,`pollIntervalMs`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_openclipboard_ffi_fn_method_clipboardnode_start_sync(`ptr`: Pointer,`port`: Short,`deviceName`: RustBuffer.ByValue,`handler`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
@@ -1079,6 +1136,8 @@ fun uniffi_openclipboard_ffi_fn_method_truststore_list(`ptr`: Pointer,uniffi_out
 ): RustBuffer.ByValue
 fun uniffi_openclipboard_ffi_fn_method_truststore_remove(`ptr`: Pointer,`peerId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
+fun uniffi_openclipboard_ffi_fn_init_callback_vtable_clipboardcallback(`vtable`: UniffiVTableCallbackInterfaceClipboardCallback,
+): Unit
 fun uniffi_openclipboard_ffi_fn_init_callback_vtable_discoveryhandler(`vtable`: UniffiVTableCallbackInterfaceDiscoveryHandler,
 ): Unit
 fun uniffi_openclipboard_ffi_fn_init_callback_vtable_eventhandler(`vtable`: UniffiVTableCallbackInterfaceEventHandler,
@@ -1260,7 +1319,16 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_openclipboard_ffi_checksum_method_clipboardnode_connect_and_send_text() != 48151.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_openclipboard_ffi_checksum_method_clipboardnode_get_clipboard_history() != 16113.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_openclipboard_ffi_checksum_method_clipboardnode_get_clipboard_history_for_peer() != 25297.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_openclipboard_ffi_checksum_method_clipboardnode_peer_id() != 3503.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_openclipboard_ffi_checksum_method_clipboardnode_recall_from_history() != 13525.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_openclipboard_ffi_checksum_method_clipboardnode_send_clipboard_text() != 29125.toShort()) {
@@ -1270,6 +1338,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_openclipboard_ffi_checksum_method_clipboardnode_start_listener() != 7176.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_openclipboard_ffi_checksum_method_clipboardnode_start_mesh() != 46513.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_openclipboard_ffi_checksum_method_clipboardnode_start_sync() != 58968.toShort()) {
@@ -1327,6 +1398,12 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_openclipboard_ffi_checksum_method_truststore_remove() != 28281.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_openclipboard_ffi_checksum_method_clipboardcallback_read_text() != 18804.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_openclipboard_ffi_checksum_method_clipboardcallback_write_text() != 24337.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_openclipboard_ffi_checksum_method_discoveryhandler_on_peer_discovered() != 5960.toShort()) {
@@ -1573,6 +1650,29 @@ public object FfiConverterUShort: FfiConverter<UShort, Short> {
 /**
  * @suppress
  */
+public object FfiConverterUInt: FfiConverter<UInt, Int> {
+    override fun lift(value: Int): UInt {
+        return value.toUInt()
+    }
+
+    override fun read(buf: ByteBuffer): UInt {
+        return lift(buf.getInt())
+    }
+
+    override fun lower(value: UInt): Int {
+        return value.toInt()
+    }
+
+    override fun allocationSize(value: UInt) = 4UL
+
+    override fun write(value: UInt, buf: ByteBuffer) {
+        buf.putInt(value.toInt())
+    }
+}
+
+/**
+ * @suppress
+ */
 public object FfiConverterULong: FfiConverter<ULong, Long> {
     override fun lift(value: Long): ULong {
         return value.toULong()
@@ -1778,13 +1878,21 @@ public interface ClipboardNodeInterface {
     
     fun `connectAndSendText`(`addr`: kotlin.String, `text`: kotlin.String)
     
+    fun `getClipboardHistory`(`limit`: kotlin.UInt): List<ClipboardHistoryEntry>
+    
+    fun `getClipboardHistoryForPeer`(`peerName`: kotlin.String, `limit`: kotlin.UInt): List<ClipboardHistoryEntry>
+    
     fun `peerId`(): kotlin.String
+    
+    fun `recallFromHistory`(`entryId`: kotlin.String): ClipboardHistoryEntry
     
     fun `sendClipboardText`(`text`: kotlin.String)
     
     fun `startDiscovery`(`deviceName`: kotlin.String, `handler`: DiscoveryHandler)
     
     fun `startListener`(`port`: kotlin.UShort, `handler`: EventHandler)
+    
+    fun `startMesh`(`port`: kotlin.UShort, `deviceName`: kotlin.String, `handler`: EventHandler, `provider`: ClipboardCallback, `pollIntervalMs`: kotlin.ULong)
     
     fun `startSync`(`port`: kotlin.UShort, `deviceName`: kotlin.String, `handler`: EventHandler)
     
@@ -1903,12 +2011,49 @@ open class ClipboardNode: Disposable, AutoCloseable, ClipboardNodeInterface
     
     
 
+    override fun `getClipboardHistory`(`limit`: kotlin.UInt): List<ClipboardHistoryEntry> {
+            return FfiConverterSequenceTypeClipboardHistoryEntry.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_openclipboard_ffi_fn_method_clipboardnode_get_clipboard_history(
+        it, FfiConverterUInt.lower(`limit`),_status)
+}
+    }
+    )
+    }
+    
+
+    override fun `getClipboardHistoryForPeer`(`peerName`: kotlin.String, `limit`: kotlin.UInt): List<ClipboardHistoryEntry> {
+            return FfiConverterSequenceTypeClipboardHistoryEntry.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_openclipboard_ffi_fn_method_clipboardnode_get_clipboard_history_for_peer(
+        it, FfiConverterString.lower(`peerName`),FfiConverterUInt.lower(`limit`),_status)
+}
+    }
+    )
+    }
+    
+
     override fun `peerId`(): kotlin.String {
             return FfiConverterString.lift(
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_openclipboard_ffi_fn_method_clipboardnode_peer_id(
         it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    @Throws(OpenClipboardException::class)override fun `recallFromHistory`(`entryId`: kotlin.String): ClipboardHistoryEntry {
+            return FfiConverterTypeClipboardHistoryEntry.lift(
+    callWithPointer {
+    uniffiRustCallWithError(OpenClipboardException) { _status ->
+    UniffiLib.INSTANCE.uniffi_openclipboard_ffi_fn_method_clipboardnode_recall_from_history(
+        it, FfiConverterString.lower(`entryId`),_status)
 }
     }
     )
@@ -1946,6 +2091,18 @@ open class ClipboardNode: Disposable, AutoCloseable, ClipboardNodeInterface
     uniffiRustCallWithError(OpenClipboardException) { _status ->
     UniffiLib.INSTANCE.uniffi_openclipboard_ffi_fn_method_clipboardnode_start_listener(
         it, FfiConverterUShort.lower(`port`),FfiConverterTypeEventHandler.lower(`handler`),_status)
+}
+    }
+    
+    
+
+    
+    @Throws(OpenClipboardException::class)override fun `startMesh`(`port`: kotlin.UShort, `deviceName`: kotlin.String, `handler`: EventHandler, `provider`: ClipboardCallback, `pollIntervalMs`: kotlin.ULong)
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(OpenClipboardException) { _status ->
+    UniffiLib.INSTANCE.uniffi_openclipboard_ffi_fn_method_clipboardnode_start_mesh(
+        it, FfiConverterUShort.lower(`port`),FfiConverterString.lower(`deviceName`),FfiConverterTypeEventHandler.lower(`handler`),FfiConverterTypeClipboardCallback.lower(`provider`),FfiConverterULong.lower(`pollIntervalMs`),_status)
 }
     }
     
@@ -2914,6 +3071,46 @@ public object FfiConverterTypeTrustStore: FfiConverter<TrustStore, Pointer> {
 
 
 
+data class ClipboardHistoryEntry (
+    var `id`: kotlin.String, 
+    var `content`: kotlin.String, 
+    var `sourcePeer`: kotlin.String, 
+    var `timestamp`: kotlin.ULong
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeClipboardHistoryEntry: FfiConverterRustBuffer<ClipboardHistoryEntry> {
+    override fun read(buf: ByteBuffer): ClipboardHistoryEntry {
+        return ClipboardHistoryEntry(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterULong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: ClipboardHistoryEntry) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`content`) +
+            FfiConverterString.allocationSize(value.`sourcePeer`) +
+            FfiConverterULong.allocationSize(value.`timestamp`)
+    )
+
+    override fun write(value: ClipboardHistoryEntry, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`content`, buf)
+            FfiConverterString.write(value.`sourcePeer`, buf)
+            FfiConverterULong.write(value.`timestamp`, buf)
+    }
+}
+
+
+
 data class IdentityInfo (
     var `peerId`: kotlin.String, 
     var `pubkeyB64`: kotlin.String
@@ -3025,6 +3222,73 @@ public object FfiConverterTypeOpenClipboardError : FfiConverterRustBuffer<OpenCl
     }
 
 }
+
+
+
+
+
+public interface ClipboardCallback {
+    
+    fun `readText`(): kotlin.String?
+    
+    fun `writeText`(`text`: kotlin.String)
+    
+    companion object
+}
+
+
+
+// Put the implementation in an object so we don't pollute the top-level namespace
+internal object uniffiCallbackInterfaceClipboardCallback {
+    internal object `readText`: UniffiCallbackInterfaceClipboardCallbackMethod0 {
+        override fun callback(`uniffiHandle`: Long,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypeClipboardCallback.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`readText`(
+                )
+            }
+            val writeReturn = { value: kotlin.String? -> uniffiOutReturn.setValue(FfiConverterOptionalString.lower(value)) }
+            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
+        }
+    }
+    internal object `writeText`: UniffiCallbackInterfaceClipboardCallbackMethod1 {
+        override fun callback(`uniffiHandle`: Long,`text`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypeClipboardCallback.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`writeText`(
+                    FfiConverterString.lift(`text`),
+                )
+            }
+            val writeReturn = { _: Unit -> Unit }
+            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
+        }
+    }
+
+    internal object uniffiFree: UniffiCallbackInterfaceFree {
+        override fun callback(handle: Long) {
+            FfiConverterTypeClipboardCallback.handleMap.remove(handle)
+        }
+    }
+
+    internal var vtable = UniffiVTableCallbackInterfaceClipboardCallback.UniffiByValue(
+        `readText`,
+        `writeText`,
+        uniffiFree,
+    )
+
+    // Registers the foreign callback with the Rust side.
+    // This method is generated for each callback interface.
+    internal fun register(lib: UniffiLib) {
+        lib.uniffi_openclipboard_ffi_fn_init_callback_vtable_clipboardcallback(vtable)
+    }
+}
+
+/**
+ * The ffiConverter which transforms the Callbacks in to handles to pass to Rust.
+ *
+ * @suppress
+ */
+public object FfiConverterTypeClipboardCallback: FfiConverterCallbackInterface<ClipboardCallback>()
 
 
 
@@ -3219,6 +3483,38 @@ public object FfiConverterTypeEventHandler: FfiConverterCallbackInterface<EventH
 /**
  * @suppress
  */
+public object FfiConverterOptionalString: FfiConverterRustBuffer<kotlin.String?> {
+    override fun read(buf: ByteBuffer): kotlin.String? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterString.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.String?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterString.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.String?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterString.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalTypeTrustRecord: FfiConverterRustBuffer<TrustRecord?> {
     override fun read(buf: ByteBuffer): TrustRecord? {
         if (buf.get().toInt() == 0) {
@@ -3269,6 +3565,34 @@ public object FfiConverterSequenceUByte: FfiConverterRustBuffer<List<kotlin.UByt
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterUByte.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeClipboardHistoryEntry: FfiConverterRustBuffer<List<ClipboardHistoryEntry>> {
+    override fun read(buf: ByteBuffer): List<ClipboardHistoryEntry> {
+        val len = buf.getInt()
+        return List<ClipboardHistoryEntry>(len) {
+            FfiConverterTypeClipboardHistoryEntry.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<ClipboardHistoryEntry>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeClipboardHistoryEntry.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<ClipboardHistoryEntry>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeClipboardHistoryEntry.write(it, buf)
         }
     }
 }

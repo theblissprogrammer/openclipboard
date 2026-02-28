@@ -4,11 +4,16 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -17,23 +22,23 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.openclipboard.ui.qr.QrScanDialog
 import com.openclipboard.ui.qr.QrShowDialog
 import com.openclipboard.ui.theme.OpenClipboardTheme
 import kotlinx.coroutines.launch
+import uniffi.openclipboard.ClipboardHistoryEntry
 
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // Sync runtime is managed by ClipboardService (see Settings -> Background Sync).
-
         enableEdgeToEdge()
         setContent {
             OpenClipboardTheme {
@@ -44,7 +49,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        // Do not stop the runtime here; ClipboardService may be keeping sync alive.
     }
 }
 
@@ -52,6 +56,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainScreen() {
     val navController = rememberNavController()
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route ?: "home"
 
     Scaffold(
         topBar = {
@@ -67,10 +73,16 @@ fun MainScreen() {
         bottomBar = {
             NavigationBar {
                 NavigationBarItem(
-                    icon = { Icon(Icons.Default.Send, contentDescription = null) },
+                    icon = { Icon(Icons.Default.Home, contentDescription = null) },
                     label = { Text("Home") },
-                    selected = true,
-                    onClick = { navController.navigate("home") }
+                    selected = currentRoute == "home",
+                    onClick = { navController.navigate("home") { launchSingleTop = true } }
+                )
+                NavigationBarItem(
+                    icon = { Icon(Icons.Default.List, contentDescription = null) },
+                    label = { Text("History") },
+                    selected = currentRoute == "history",
+                    onClick = { navController.navigate("history") { launchSingleTop = true } }
                 )
             }
         }
@@ -80,18 +92,15 @@ fun MainScreen() {
             startDestination = "home",
             modifier = Modifier.padding(innerPadding)
         ) {
-            composable("home") {
-                HomeScreen()
-            }
-            composable("peers") {
-                PeersScreen()
-            }
-            composable("settings") {
-                SettingsScreen()
-            }
+            composable("home") { HomeScreen() }
+            composable("history") { ClipboardHistoryScreen() }
+            composable("peers") { PeersScreen() }
+            composable("settings") { SettingsScreen() }
         }
     }
 }
+
+// MARK: - Home Screen
 
 @Composable
 fun HomeScreen() {
@@ -101,50 +110,78 @@ fun HomeScreen() {
     val port = OpenClipboardAppState.listeningPort.value
     val connectedCount = OpenClipboardAppState.connectedPeers.size
 
-    // Snapshot lists (avoid recomposition thrash on background callback updates).
     val nearby = OpenClipboardAppState.nearbyPeers.toList()
     val trusted = OpenClipboardAppState.trustedPeers.toList()
-    val activity = OpenClipboardAppState.recentActivity.toList()
+    val connected = OpenClipboardAppState.connectedPeers.toList()
 
     var showPairDialog by remember { mutableStateOf(false) }
     var pairTarget by remember { mutableStateOf<NearbyPeerRecord?>(null) }
 
-    Column(
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text("Status", style = MaterialTheme.typography.headlineSmall)
-                Text("Peer ID: $peerId")
-                Text("Listening on: Port $port")
-                Text("Connected Peers: $connectedCount")
+        item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("Status", style = MaterialTheme.typography.headlineSmall)
+                    Text("Peer ID: $peerId")
+                    Text("Listening on: Port $port")
+                    Text("Sync: ${if (OpenClipboardAppState.syncRunning.value) "Running" else "Stopped"}")
+                }
             }
         }
 
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("Nearby Devices", style = MaterialTheme.typography.headlineSmall)
-                    TextButton(onClick = { OpenClipboardAppState.refreshTrustedPeers(context) }) {
-                        Text("Refresh")
+        // Connected Peers
+        item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Connected Peers", style = MaterialTheme.typography.headlineSmall)
+                    Spacer(Modifier.height(8.dp))
+
+                    if (connected.isEmpty()) {
+                        Text("No peers connected", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        connected.forEach { peer ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("🟢", modifier = Modifier.padding(end = 8.dp))
+                                Text(peer)
+                            }
+                        }
                     }
                 }
+            }
+        }
 
-                if (nearby.isEmpty()) {
-                    Text("No devices found yet.")
-                } else {
-                    LazyColumn(modifier = Modifier.heightIn(max = 220.dp)) {
-                        items(nearby) { p ->
+        // Nearby Devices
+        item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("Nearby Devices", style = MaterialTheme.typography.headlineSmall)
+                        TextButton(onClick = { OpenClipboardAppState.refreshTrustedPeers(context) }) {
+                            Text("Refresh")
+                        }
+                    }
+
+                    if (nearby.isEmpty()) {
+                        Text("No devices found yet.")
+                    } else {
+                        nearby.forEach { p ->
                             NearbyPeerItem(
                                 peer = p,
                                 onPair = {
@@ -155,23 +192,25 @@ fun HomeScreen() {
                                     OpenClipboardAppState.sendClipboardTextTo(p.addr, context)
                                 }
                             )
-                            Divider()
+                            HorizontalDivider()
                         }
                     }
                 }
             }
         }
 
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("Paired Devices", style = MaterialTheme.typography.headlineSmall)
-                Spacer(Modifier.height(8.dp))
+        // Paired Devices
+        item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Paired Devices", style = MaterialTheme.typography.headlineSmall)
+                    Spacer(Modifier.height(8.dp))
 
-                if (trusted.isEmpty()) {
-                    Text("No paired devices yet.")
-                } else {
-                    LazyColumn(modifier = Modifier.heightIn(max = 160.dp)) {
-                        items(trusted) { peer ->
+                    if (trusted.isEmpty()) {
+                        Text("No paired devices yet.")
+                    } else {
+                        trusted.forEach { peer ->
+                            val isOnline = connected.contains(peer.peerId)
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -179,27 +218,19 @@ fun HomeScreen() {
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Column {
-                                    Text(peer.name, fontWeight = FontWeight.Medium)
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            if (isOnline) "🟢" else "⚪",
+                                            modifier = Modifier.padding(end = 8.dp)
+                                        )
+                                        Text(peer.name, fontWeight = FontWeight.Medium)
+                                    }
                                     Text(peer.peerId, style = MaterialTheme.typography.bodySmall)
                                 }
                             }
-                            Divider()
+                            HorizontalDivider()
                         }
-                    }
-                }
-            }
-        }
-
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("Recent Activity", style = MaterialTheme.typography.headlineSmall)
-                Spacer(Modifier.height(8.dp))
-
-                LazyColumn {
-                    items(activity) { act ->
-                        ActivityItem(act)
-                        Divider()
                     }
                 }
             }
@@ -223,6 +254,142 @@ fun HomeScreen() {
     }
 }
 
+// MARK: - Clipboard History Screen
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun ClipboardHistoryScreen() {
+    val context = LocalContext.current
+    val history = OpenClipboardAppState.clipboardHistory.toList()
+
+    // Get unique peer names for filter chips
+    val allPeers = remember(history) { history.map { it.sourcePeer }.distinct().sorted() }
+    var selectedPeer by remember { mutableStateOf<String?>(null) }
+    var expandedEntryId by remember { mutableStateOf<String?>(null) }
+
+    val filteredHistory = remember(history, selectedPeer) {
+        if (selectedPeer == null) history
+        else history.filter { it.sourcePeer == selectedPeer }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Clipboard History", style = MaterialTheme.typography.headlineSmall)
+            TextButton(onClick = { OpenClipboardAppState.refreshHistory(context) }) {
+                Text("Refresh")
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        // Device filter chips
+        if (allPeers.size > 1) {
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                item {
+                    FilterChip(
+                        selected = selectedPeer == null,
+                        onClick = { selectedPeer = null },
+                        label = { Text("All") }
+                    )
+                }
+                items(allPeers) { peer ->
+                    FilterChip(
+                        selected = selectedPeer == peer,
+                        onClick = { selectedPeer = if (selectedPeer == peer) null else peer },
+                        label = { Text(peer) }
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+
+        if (filteredHistory.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("No clipboard history yet", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        } else {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                items(filteredHistory, key = { it.id }) { entry ->
+                    val isExpanded = expandedEntryId == entry.id
+
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .combinedClickable(
+                                onClick = {
+                                    // Tap → recall to local clipboard
+                                    OpenClipboardAppState.recallFromHistory(context, entry.id)
+                                },
+                                onLongClick = {
+                                    // Long press → toggle full content view
+                                    expandedEntryId = if (isExpanded) null else entry.id
+                                }
+                            )
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("📱", modifier = Modifier.padding(end = 6.dp))
+                                    Text(
+                                        entry.sourcePeer,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                                Text(
+                                    relativeTimeString(entry.timestamp.toLong()),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            Spacer(Modifier.height(4.dp))
+
+                            Text(
+                                entry.content,
+                                maxLines = if (isExpanded) Int.MAX_VALUE else 2,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun relativeTimeString(timestampMs: Long): String {
+    val now = System.currentTimeMillis()
+    val seconds = (now - timestampMs) / 1000
+    return when {
+        seconds < 60 -> "just now"
+        seconds < 3600 -> "${seconds / 60}m ago"
+        seconds < 86400 -> "${seconds / 3600}h ago"
+        else -> "${seconds / 86400}d ago"
+    }
+}
+
+// MARK: - Peers Screen
+
 @Composable
 fun PeersScreen() {
     val context = LocalContext.current
@@ -241,7 +408,6 @@ fun PeersScreen() {
             Text("Trusted Peers", style = MaterialTheme.typography.headlineSmall)
             FloatingActionButton(
                 onClick = {
-                    // TODO: Add pairing UI + TrustStore add
                     peers = OpenClipboardAppState.listTrustedPeers(context)
                 }
             ) {
@@ -260,11 +426,13 @@ fun PeersScreen() {
                         peers = OpenClipboardAppState.listTrustedPeers(context)
                     }
                 )
-                Divider()
+                HorizontalDivider()
             }
         }
     }
 }
+
+// MARK: - Settings Screen
 
 @Composable
 fun SettingsScreen() {
@@ -275,15 +443,16 @@ fun SettingsScreen() {
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
-    // 0 = identity, 1 = trust, 2 = all
     var pendingReset by remember { mutableStateOf<Int?>(null) }
     var notifPermissionDenied by remember { mutableStateOf(false) }
+
+    // History size limit
+    var historyLimit by remember { mutableStateOf(OpenClipboardAppState.getHistoryLimit(context)) }
 
     val requestNotifications = androidx.activity.compose.rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (!granted && android.os.Build.VERSION.SDK_INT >= 33) {
-            // Best-effort hint.
             notifPermissionDenied = true
         }
     }
@@ -342,7 +511,6 @@ fun SettingsScreen() {
                     onClick = {
                         val wasRunning = serviceRunning
                         if (wasRunning) {
-                            // Stop the foreground service first; then stop the in-process runtime.
                             OpenClipboardAppState.serviceRunning.value = false
                             stopService()
                         }
@@ -366,7 +534,6 @@ fun SettingsScreen() {
                             else -> ""
                         }
 
-                        // Restart background sync if it was running previously.
                         if (wasRunning) {
                             startServiceWithBestEffortPermission()
                         }
@@ -392,124 +559,158 @@ fun SettingsScreen() {
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { innerPadding ->
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(16.dp)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text("Settings", style = MaterialTheme.typography.headlineMedium)
-
-            Spacer(Modifier.height(24.dp))
-
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Background Sync", style = MaterialTheme.typography.titleLarge)
-                    Spacer(Modifier.height(8.dp))
-
-                    Text(if (serviceRunning) "Status: Running" else "Status: Stopped")
-
-                    Spacer(Modifier.height(12.dp))
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Button(
-                            onClick = { startServiceWithBestEffortPermission() },
-                            enabled = !serviceRunning,
-                        ) { Text("Start") }
-
-                        OutlinedButton(
-                            onClick = { stopService() },
-                            enabled = serviceRunning,
-                        ) { Text("Stop") }
-                    }
-                }
+            item {
+                Text("Settings", style = MaterialTheme.typography.headlineMedium)
             }
 
-            Spacer(Modifier.height(16.dp))
-
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Status / Debug", style = MaterialTheme.typography.titleLarge)
-                    Spacer(Modifier.height(8.dp))
-
-                    val syncRunning = OpenClipboardAppState.syncRunning.value
-                    val discoveredCount = OpenClipboardAppState.nearbyPeers.size
-                    val connected = OpenClipboardAppState.connectedPeers.toList()
-
-                    Text(if (syncRunning) "Sync: Running" else "Sync: Stopped")
-                    Text("Discovered peers: $discoveredCount")
-                    Text("Connected peers: ${connected.size}")
-
-                    if (connected.isNotEmpty()) {
-                        val shown = connected.take(5)
-                        Text("Connected: ${shown.joinToString()}${if (connected.size > shown.size) " …" else ""}")
-                    }
-
-                    OpenClipboardAppState.lastError.value?.let { err ->
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("Background Sync", style = MaterialTheme.typography.titleLarge)
                         Spacer(Modifier.height(8.dp))
-                        Text("Last error:", fontWeight = FontWeight.Medium)
-                        Text(err, color = MaterialTheme.colorScheme.error)
-                        TextButton(onClick = { OpenClipboardAppState.lastError.value = null }) {
-                            Text("Clear")
+
+                        Text(if (serviceRunning) "Status: Running" else "Status: Stopped")
+
+                        Spacer(Modifier.height(12.dp))
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Button(
+                                onClick = { startServiceWithBestEffortPermission() },
+                                enabled = !serviceRunning,
+                            ) { Text("Start") }
+
+                            OutlinedButton(
+                                onClick = { stopService() },
+                                enabled = serviceRunning,
+                            ) { Text("Stop") }
                         }
                     }
                 }
             }
 
-            Spacer(Modifier.height(16.dp))
+            // History size config
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("Clipboard History", style = MaterialTheme.typography.titleLarge)
+                        Spacer(Modifier.height(8.dp))
 
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Reset", style = MaterialTheme.typography.titleLarge)
-                    Spacer(Modifier.height(8.dp))
+                        Text("History size limit: $historyLimit entries")
+                        Spacer(Modifier.height(8.dp))
 
-                    Text(
-                        "These actions stop sync (if running) and delete local state files. This is destructive and cannot be undone.",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
+                        Slider(
+                            value = historyLimit.toFloat(),
+                            onValueChange = { historyLimit = it.toInt() },
+                            onValueChangeFinished = {
+                                OpenClipboardAppState.setHistoryLimit(context, historyLimit)
+                            },
+                            valueRange = 10f..200f,
+                            steps = 18
+                        )
 
-                    Spacer(Modifier.height(12.dp))
+                        Text(
+                            "Maximum number of clipboard entries to keep",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
 
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(
-                            onClick = { pendingReset = 0 },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text("Reset Identity", color = MaterialTheme.colorScheme.error)
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("Status / Debug", style = MaterialTheme.typography.titleLarge)
+                        Spacer(Modifier.height(8.dp))
+
+                        val syncRunning = OpenClipboardAppState.syncRunning.value
+                        val discoveredCount = OpenClipboardAppState.nearbyPeers.size
+                        val connected = OpenClipboardAppState.connectedPeers.toList()
+
+                        Text(if (syncRunning) "Sync: Running" else "Sync: Stopped")
+                        Text("Discovered peers: $discoveredCount")
+                        Text("Connected peers: ${connected.size}")
+
+                        if (connected.isNotEmpty()) {
+                            val shown = connected.take(5)
+                            Text("Connected: ${shown.joinToString()}${if (connected.size > shown.size) " …" else ""}")
                         }
 
-                        OutlinedButton(
-                            onClick = { pendingReset = 1 },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text("Clear Trusted Peers", color = MaterialTheme.colorScheme.error)
-                        }
-
-                        Button(
-                            onClick = { pendingReset = 2 },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                        ) {
-                            Text("Reset All", color = MaterialTheme.colorScheme.onError)
+                        OpenClipboardAppState.lastError.value?.let { err ->
+                            Spacer(Modifier.height(8.dp))
+                            Text("Last error:", fontWeight = FontWeight.Medium)
+                            Text(err, color = MaterialTheme.colorScheme.error)
+                            TextButton(onClick = { OpenClipboardAppState.lastError.value = null }) {
+                                Text("Clear")
+                            }
                         }
                     }
                 }
             }
 
-            Spacer(Modifier.height(16.dp))
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("Reset", style = MaterialTheme.typography.titleLarge)
+                        Spacer(Modifier.height(8.dp))
 
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Runtime", style = MaterialTheme.typography.titleLarge)
-                    Spacer(Modifier.height(8.dp))
-                    Text("Port: ${OpenClipboardAppState.listeningPort.value}")
-                    Text("Identity Path: ${context.filesDir.absolutePath}/identity.json")
-                    Text("Trust Store: ${context.filesDir.absolutePath}/trust.json")
+                        Text(
+                            "These actions stop sync (if running) and delete local state files. This is destructive and cannot be undone.",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+
+                        Spacer(Modifier.height(12.dp))
+
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = { pendingReset = 0 },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text("Reset Identity", color = MaterialTheme.colorScheme.error)
+                            }
+
+                            OutlinedButton(
+                                onClick = { pendingReset = 1 },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text("Clear Trusted Peers", color = MaterialTheme.colorScheme.error)
+                            }
+
+                            Button(
+                                onClick = { pendingReset = 2 },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                            ) {
+                                Text("Reset All", color = MaterialTheme.colorScheme.onError)
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("Runtime", style = MaterialTheme.typography.titleLarge)
+                        Spacer(Modifier.height(8.dp))
+                        Text("Port: ${OpenClipboardAppState.listeningPort.value}")
+                        Text("Identity Path: ${context.filesDir.absolutePath}/identity.json")
+                        Text("Trust Store: ${context.filesDir.absolutePath}/trust.json")
+                    }
                 }
             }
         }
     }
 }
+
+// MARK: - Shared Components
 
 @Composable
 fun ActivityItem(activity: ActivityRecord) {
@@ -580,6 +781,8 @@ fun NearbyPeerItem(
     }
 }
 
+// MARK: - Pair Dialog
+
 private enum class PairRole { Initiator, Responder }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -597,19 +800,16 @@ fun PairDialog(
     var showScanDialog by remember { mutableStateOf(false) }
     var showInitQrDialog by remember { mutableStateOf(false) }
 
-    // Initiator state
     var initQr by remember { mutableStateOf<String?>(null) }
     var respQrInput by remember { mutableStateOf("") }
     var initCode by remember { mutableStateOf<String?>(null) }
     var initRemote by remember { mutableStateOf<Pairing.FinalizeResult?>(null) }
 
-    // Responder state
     var initQrInput by remember { mutableStateOf("") }
     var respQr by remember { mutableStateOf<String?>(null) }
     var respCode by remember { mutableStateOf<String?>(null) }
     var respRemoteInit by remember { mutableStateOf<uniffi.openclipboard.PairingPayload?>(null) }
 
-    // Errors
     var error by remember { mutableStateOf<String?>(null) }
 
     fun myIdentityInfo(): Pair<String, String> {
@@ -823,7 +1023,6 @@ fun PairDialog(
         QrScanDialog(
             title = "Scan init QR",
             onResult = { raw ->
-                // On scan success: auto-fill init string and proceed.
                 initQrInput = raw
                 showScanDialog = false
                 generateResponderPayload()
@@ -845,6 +1044,8 @@ fun PairDialog(
         }
     }
 }
+
+// MARK: - Data Classes
 
 data class ActivityRecord(
     val description: String,

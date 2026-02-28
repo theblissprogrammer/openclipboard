@@ -3,9 +3,12 @@ package com.openclipboard
 import android.content.Context
 import android.content.ClipboardManager
 import android.content.ClipData
+import android.widget.Toast
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import uniffi.openclipboard.ClipboardCallback
 import uniffi.openclipboard.EventHandler
+import uniffi.openclipboard.ClipboardHistoryEntry
 import uniffi.openclipboard.OpenClipboardException
 import uniffi.openclipboard.clipboardNodeNew
 import uniffi.openclipboard.trustStoreOpen
@@ -15,42 +18,41 @@ object OpenClipboardAppState {
     val peerId = mutableStateOf("(initializing…)")
     val listeningPort = mutableStateOf(18455)
 
-    // Whether the background ClipboardService is running (best-effort UI indicator).
     val serviceRunning = mutableStateOf(false)
-
-    // Whether the underlying sync runtime is active.
-    // Some UI code refers to this as "syncRunning".
     val syncRunning = mutableStateOf(false)
-
-    // Last error string (best-effort debug surface).
     val lastError = mutableStateOf<String?>(null)
 
     val connectedPeers = mutableStateListOf<String>()
     val recentActivity = mutableStateListOf<ActivityRecord>()
 
-    // Nearby (mDNS) discovery
     val nearbyPeers = mutableStateListOf<NearbyPeerRecord>()
-
-    // Paired/trusted peers (TrustStore)
     val trustedPeers = mutableStateListOf<TrustedPeerRecord>()
+
+    // Clipboard history entries (refreshed from Rust core)
+    val clipboardHistory = mutableStateListOf<ClipboardHistoryEntry>()
 
     private var node: uniffi.openclipboard.ClipboardNode? = null
 
-    // Phase 3: echo suppression to prevent remote->local->remote loops.
-    private val echoSuppressor = EchoSuppressor(capacity = 20)
-    private var clipboardListener: ClipboardManager.OnPrimaryClipChangedListener? = null
-    private var clipboardManager: ClipboardManager? = null
-
     private var discoveryStarted: Boolean = false
 
-    // Compose state is not thread-safe; Discovery callbacks happen on a Rust runtime thread.
-    // Marshal list updates onto the main thread (initialized only when running on Android runtime).
     private var mainHandler: android.os.Handler? = null
 
+    // History size limit preference key
+    const val PREF_HISTORY_LIMIT = "history_size_limit"
+    private const val DEFAULT_HISTORY_LIMIT = 50
+
+    fun getHistoryLimit(context: Context): Int {
+        val prefs = context.getSharedPreferences("openclipboard_settings", Context.MODE_PRIVATE)
+        return prefs.getInt(PREF_HISTORY_LIMIT, DEFAULT_HISTORY_LIMIT)
+    }
+
+    fun setHistoryLimit(context: Context, limit: Int) {
+        val prefs = context.getSharedPreferences("openclipboard_settings", Context.MODE_PRIVATE)
+        prefs.edit().putInt(PREF_HISTORY_LIMIT, limit).apply()
+    }
+
     /**
-     * Starts the UniFFI node and begins sync + clipboard monitoring.
-     *
-     * Idempotent: safe to call multiple times (won't double-register listeners).
+     * Starts the UniFFI node using start_mesh (clipboard polling + broadcast handled by Rust core).
      */
     fun init(context: Context) {
         if (node != null) return
@@ -69,14 +71,39 @@ object OpenClipboardAppState {
             refreshTrustedPeers(context)
 
             syncRunning.value = true
-            n.startSync(listeningPort.value.toUShort(), "Android ${android.os.Build.MODEL}".trim(), object : EventHandler {
+
+            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+
+            // Real ClipboardCallback using Android ClipboardManager
+            val provider = object : ClipboardCallback {
+                override fun readText(): String? {
+                    return try {
+                        val clip = cm.primaryClip
+                        clip?.getItemAt(0)?.coerceToText(context)?.toString()
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+
+                override fun writeText(text: String) {
+                    try {
+                        cm.setPrimaryClip(ClipData.newPlainText("openclipboard", text))
+                    } catch (_: Exception) {
+                        // best-effort
+                    }
+                }
+            }
+
+            val handler = object : EventHandler {
                 override fun onClipboardText(peerId: String, text: String, tsMs: ULong) {
                     addActivity("Received clipboard text", peerId)
-
-                    // MVP: write received text to system clipboard.
-                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    echoSuppressor.noteRemoteWrite(text)
-                    cm.setPrimaryClip(ClipData.newPlainText("openclipboard", text))
+                    // Clipboard write is handled by ClipboardCallback in mesh mode.
+                    // Show toast on main thread.
+                    mainHandler?.post {
+                        val preview = if (text.length > 40) text.take(40) + "…" else text
+                        Toast.makeText(context, "📋 From $peerId: $preview", Toast.LENGTH_SHORT).show()
+                        refreshHistory(context)
+                    }
                 }
 
                 override fun onFileReceived(peerId: String, name: String, dataPath: String) {
@@ -84,14 +111,18 @@ object OpenClipboardAppState {
                 }
 
                 override fun onPeerConnected(peerId: String) {
-                    if (!connectedPeers.contains(peerId)) {
-                        connectedPeers.add(peerId)
+                    mainHandler?.post {
+                        if (!connectedPeers.contains(peerId)) {
+                            connectedPeers.add(peerId)
+                        }
                     }
                     addActivity("Peer connected", peerId)
                 }
 
                 override fun onPeerDisconnected(peerId: String) {
-                    connectedPeers.remove(peerId)
+                    mainHandler?.post {
+                        connectedPeers.remove(peerId)
+                    }
                     addActivity("Peer disconnected", peerId)
                 }
 
@@ -99,56 +130,68 @@ object OpenClipboardAppState {
                     lastError.value = message
                     addActivity("Error: $message", "")
                 }
-            })
-
-            // Monitor local clipboard and broadcast changes.
-            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            clipboardManager = cm
-            val l = ClipboardManager.OnPrimaryClipChangedListener {
-                val clip = cm.primaryClip
-                val text = clip?.getItemAt(0)?.coerceToText(context)?.toString() ?: return@OnPrimaryClipChangedListener
-                if (echoSuppressor.shouldIgnoreLocalChange(text)) return@OnPrimaryClipChangedListener
-                try {
-                    n.sendClipboardText(text)
-                    addActivity("Broadcast clipboard text", "")
-                } catch (e: Exception) {
-                    addActivity("Broadcast failed: ${e.message}", "")
-                }
             }
-            clipboardListener = l
-            cm.addPrimaryClipChangedListener(l)
 
-            // Start mDNS discovery (idempotent).
+            val deviceName = "Android ${android.os.Build.MODEL}".trim()
+            n.startMesh(
+                listeningPort.value.toUShort(),
+                deviceName,
+                handler,
+                provider,
+                250u
+            )
+
+            // Start mDNS discovery
             startDiscovery(context)
+
+            // Initial history load
+            refreshHistory(context)
         } catch (e: Exception) {
             addActivity("Init failed: ${e.message}", "")
         }
     }
 
-    /**
-     * Stops sync + discovery and unregisters local clipboard listeners.
-     */
-    fun stop() {
-        clipboardListener?.let { l ->
-            try {
-                clipboardManager?.removePrimaryClipChangedListener(l)
-            } catch (_: Exception) {
-                // best-effort
-            }
+    fun refreshHistory(context: Context) {
+        val n = node ?: return
+        val limit = getHistoryLimit(context).toUInt()
+        val entries = n.getClipboardHistory(limit)
+        mainHandler?.post {
+            clipboardHistory.clear()
+            clipboardHistory.addAll(entries)
+        } ?: run {
+            clipboardHistory.clear()
+            clipboardHistory.addAll(entries)
         }
-        clipboardListener = null
-        clipboardManager = null
+    }
 
+    fun getHistoryForPeer(peerName: String, limit: UInt): List<ClipboardHistoryEntry> {
+        return node?.getClipboardHistoryForPeer(peerName, limit) ?: emptyList()
+    }
+
+    fun recallFromHistory(context: Context, entryId: String): Boolean {
+        return try {
+            node?.recallFromHistory(entryId)
+            mainHandler?.post {
+                Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+            }
+            true
+        } catch (e: Exception) {
+            lastError.value = e.message
+            false
+        }
+    }
+
+    fun stop() {
         syncRunning.value = false
         lastError.value = null
 
-        // Rust-side stop() stops listener + discovery.
         node?.stop()
         node = null
         discoveryStarted = false
         connectedPeers.clear()
         nearbyPeers.clear()
         trustedPeers.clear()
+        clipboardHistory.clear()
     }
 
     fun startDiscovery(context: Context) {
@@ -188,7 +231,6 @@ object OpenClipboardAppState {
         trustedPeers.clear()
         trustedPeers.addAll(listTrustedPeers(context))
 
-        // Update nearby trust flags.
         val trusted = trustedPeers.map { it.peerId }.toSet()
         for (i in nearbyPeers.indices) {
             val p = nearbyPeers[i]
@@ -223,11 +265,6 @@ object OpenClipboardAppState {
         }
     }
 
-    /**
-     * Remove a peer from the TrustStore, then refresh in-memory state.
-     *
-     * @return true if an entry was removed, false if it did not exist (or removal failed).
-     */
     fun removeTrustedPeer(context: Context, peerId: String): Boolean {
         val trustPath = File(context.filesDir, "trust.json").absolutePath
         return try {
@@ -245,11 +282,9 @@ object OpenClipboardAppState {
         }
     }
 
-    // Extracted for JVM unit tests (doesn't touch filesystem / Android Context).
     internal fun removeTrustedPeerFromState(peerId: String) {
         trustedPeers.removeAll { it.peerId == peerId }
 
-        // Update nearby trust flags.
         for (i in nearbyPeers.indices) {
             val p = nearbyPeers[i]
             if (p.peerId == peerId && p.isTrusted) {
@@ -275,7 +310,6 @@ object OpenClipboardAppState {
         }
     }
 
-    // Extracted for JVM unit tests (pure Kotlin / no Android Context).
     internal fun resetFiles(
         identityFile: File,
         trustFile: File,
@@ -287,11 +321,6 @@ object OpenClipboardAppState {
         return ResetResult(identityDeleted = idDeleted, trustDeleted = trustDeleted)
     }
 
-    /**
-     * Deletes identity.json. The identity will be re-created on next init().
-     *
-     * Stops any running sync runtime first to avoid file contention.
-     */
     fun resetIdentity(context: Context): Boolean {
         stop()
         val res = resetFiles(
@@ -307,11 +336,6 @@ object OpenClipboardAppState {
         return res.identityDeleted
     }
 
-    /**
-     * Deletes trust.json (clears trusted peers). The trust store will be re-created on next init().
-     *
-     * Stops any running sync runtime first to avoid file contention.
-     */
     fun clearTrustedPeers(context: Context): Boolean {
         stop()
         val res = resetFiles(
@@ -326,11 +350,6 @@ object OpenClipboardAppState {
         return res.trustDeleted
     }
 
-    /**
-     * Deletes both identity.json and trust.json.
-     *
-     * Stops any running sync runtime first to avoid file contention.
-     */
     fun resetAll(context: Context): ResetResult {
         stop()
         val res = resetFiles(
@@ -349,7 +368,6 @@ object OpenClipboardAppState {
     }
 
     fun addActivity(desc: String, peer: String) {
-        // keep it small
         recentActivity.add(0, ActivityRecord(desc, peer, ""))
         while (recentActivity.size > 50) {
             recentActivity.removeLast()
