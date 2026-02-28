@@ -62,8 +62,11 @@ jobs:
             ~/.gradle/wrapper
           key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', '**/libs.versions.toml') }}
 
-      - name: Ensure Gradle wrapper is executable
-        run: chmod +x android/gradlew
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.9
+          validate-wrappers: false
 
       - name: Run emulator smoke tests (connectedDebugAndroidTest)
         uses: ReactiveCircus/android-emulator-runner@v2
@@ -73,5 +76,5 @@ jobs:
           profile: Nexus 6
           disable-animations: true
           script: |
-            cd android
-            ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+            # Use -p to ensure Gradle uses the Android project root.
+            gradle -p android :app:connectedDebugAndroidTest --no-daemon --stacktrace
