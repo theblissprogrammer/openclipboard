@@ -679,24 +679,7 @@ fun PairDialog(
 
                 PairRole.Responder -> {
                     if (respQr == null) {
-                        TextButton(onClick = {
-                            error = null
-                            try {
-                                val (myPeerId, myPk) = myIdentityInfo()
-                                val res = Pairing.respondToInit(
-                                    initQr = initQrInput.trim(),
-                                    myPeerId = myPeerId,
-                                    myName = "Android ${android.os.Build.MODEL}".trim(),
-                                    myIdentityPkB64 = myPk,
-                                    myLanPort = OpenClipboardAppState.listeningPort.value,
-                                )
-                                respQr = res.respQr
-                                respCode = res.confirmationCode
-                                respRemoteInit = res.init
-                            } catch (e: Exception) {
-                                error = e.message
-                            }
-                        }) { Text("Generate") }
+                        TextButton(onClick = { generateResponderPayload() }) { Text("Generate") }
                     } else {
                         TextButton(onClick = {
                             error = null
@@ -719,6 +702,32 @@ fun PairDialog(
             TextButton(onClick = onDismiss) { Text("Close") }
         }
     )
+
+    if (showScanDialog) {
+        QrScanDialog(
+            title = "Scan init QR",
+            onResult = { raw ->
+                // On scan success: auto-fill init string and proceed.
+                initQrInput = raw
+                showScanDialog = false
+                generateResponderPayload()
+            },
+            onDismiss = { showScanDialog = false },
+        )
+    }
+
+    if (showInitQrDialog) {
+        val data = initQr
+        if (data != null) {
+            QrShowDialog(
+                title = "Init QR",
+                data = data,
+                onDismiss = { showInitQrDialog = false },
+            )
+        } else {
+            showInitQrDialog = false
+        }
+    }
 }
 
 data class ActivityRecord(

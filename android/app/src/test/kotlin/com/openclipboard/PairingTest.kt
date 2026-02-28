@@ -35,4 +35,35 @@ class PairingTest {
 
         assertEquals(resp.confirmationCode, fin.confirmationCode)
     }
+
+    @Test
+    fun scanned_qr_string_with_whitespace_is_accepted() {
+        val aPeerId = "peerA"
+        val bPeerId = "peerB"
+
+        val aPk = Pairing.pkB64FromBytes(ByteArray(32) { 1 })
+        val bPk = Pairing.pkB64FromBytes(ByteArray(32) { 2 })
+
+        val nonce = ByteArray(32) { 7 }
+        val init = Pairing.createInitPayload(
+            myPeerId = aPeerId,
+            myName = "Alice",
+            myIdentityPkB64 = aPk,
+            myLanPort = 18455,
+            nonce = nonce,
+        )
+
+        val scanned = "\n  ${init.initQr}\n\n"
+
+        val resp = Pairing.respondToInit(
+            initQr = scanned,
+            myPeerId = bPeerId,
+            myName = "Bob",
+            myIdentityPkB64 = bPk,
+            myLanPort = 18455,
+        )
+
+        val fin = Pairing.finalize(scanned, resp.respQr + "\n")
+        assertEquals(resp.confirmationCode, fin.confirmationCode)
+    }
 }

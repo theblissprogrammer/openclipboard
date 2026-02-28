@@ -57,6 +57,8 @@ object Pairing {
         val resp: PairingPayload,
     )
 
+    fun normalizeQrString(raw: String): String = raw.trim()
+
     @Throws(OpenClipboardException::class)
     fun respondToInit(
         initQr: String,
@@ -65,7 +67,7 @@ object Pairing {
         myIdentityPkB64: String,
         myLanPort: Int,
     ): RespondResult {
-        val init = pairingPayloadFromQrString(initQr)
+        val init = pairingPayloadFromQrString(normalizeQrString(initQr))
         val resp = pairingPayloadCreate(
             version = 1.toUByte(),
             peerId = myPeerId,
@@ -91,8 +93,8 @@ object Pairing {
 
     @Throws(OpenClipboardException::class)
     fun finalize(initQr: String, respQr: String): FinalizeResult {
-        val init = pairingPayloadFromQrString(initQr)
-        val resp = pairingPayloadFromQrString(respQr)
+        val init = pairingPayloadFromQrString(normalizeQrString(initQr))
+        val resp = pairingPayloadFromQrString(normalizeQrString(respQr))
 
         val initNonce = init.nonce()
         val respNonce = resp.nonce()

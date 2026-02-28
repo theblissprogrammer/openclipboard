@@ -65,6 +65,16 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation(libs.google.material)
     implementation(libs.androidx.navigation.compose)
+
+    // QR scan (CameraX + ML Kit)
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
+    implementation(libs.google.mlkit.barcode.scanning)
+
+    // QR show (ZXing)
+    implementation(libs.zxing.core)
+
     // JNA: use @aar on Android so libjnidispatch.so is included for device ABIs.
     // Also include the JAR for JVM unit tests (host needs desktop native libs).
     implementation(libs.jna) { artifact { type = "aar" } }
