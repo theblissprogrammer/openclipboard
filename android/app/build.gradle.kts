@@ -65,7 +65,9 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation(libs.google.material)
     implementation(libs.androidx.navigation.compose)
-    implementation(libs.jna)
+    // JNA: must use @aar on Android so libjnidispatch.so is included for the device ABI.
+    // The default JAR only ships desktop native libs.
+    implementation(libs.jna) { artifact { type = "aar" } }
     
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
