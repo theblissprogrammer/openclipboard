@@ -76,5 +76,23 @@ jobs:
           profile: Nexus 6
           disable-animations: true
           script: |
+            set +e
             # Use -p to ensure Gradle uses the Android project root.
             gradle -p android :app:connectedDebugAndroidTest --no-daemon --stacktrace
+            RC=$?
+
+            echo "--- adb devices"
+            adb devices || true
+
+            echo "--- logcat (last 400 lines)"
+            adb logcat -d | tail -400 || true
+
+            echo "--- dumpsys crash"
+            adb shell dumpsys dropbox --print system_app_crash app_crash system_server_crash 2>/dev/null | tail -200 || true
+
+            # Also try a direct launch to reproduce startup crash more deterministically.
+            echo "--- launch MainActivity"
+            adb shell am start -W -n com.openclipboard/.MainActivity || true
+            adb logcat -d | tail -200 || true
+
+            exit $RC
