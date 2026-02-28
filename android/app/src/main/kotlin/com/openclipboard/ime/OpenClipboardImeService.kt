@@ -6,6 +6,7 @@ import android.content.Context
 import android.inputmethodservice.InputMethodService
 import android.text.format.DateFormat
 import android.view.View
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -197,6 +198,7 @@ private fun HistoryList(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun HistoryRow(
     item: ImeViewModel.UiHistoryItem,
