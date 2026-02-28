@@ -12,11 +12,11 @@ class ImeViewModel {
     var selectedPeer by mutableStateOf<String?>(null)
         private set
 
-    fun setQuery(value: String) {
+    fun updateQuery(value: String) {
         query = value
     }
 
-    fun setSelectedPeer(peer: String?) {
+    fun updateSelectedPeer(peer: String?) {
         selectedPeer = peer
     }
 

@@ -118,7 +118,7 @@ private fun ImeRoot(
         OutlinedTextField(
             modifier = Modifier.fillMaxWidth(),
             value = vm.query,
-            onValueChange = vm::setQuery,
+            onValueChange = vm::updateQuery,
             singleLine = true,
             label = { Text("Search") },
             keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Done),
@@ -128,7 +128,7 @@ private fun ImeRoot(
         PeerChips(
             peers = vm.peerOptions(history),
             selectedPeer = vm.selectedPeer,
-            onSelect = vm::setSelectedPeer,
+            onSelect = vm::updateSelectedPeer,
         )
 
         HistoryList(
