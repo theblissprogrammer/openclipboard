@@ -18,6 +18,13 @@ object OpenClipboardAppState {
     // Whether the background ClipboardService is running (best-effort UI indicator).
     val serviceRunning = mutableStateOf(false)
 
+    // Whether the underlying sync runtime is active.
+    // Some UI code refers to this as "syncRunning".
+    val syncRunning = mutableStateOf(false)
+
+    // Last error string (best-effort debug surface).
+    val lastError = mutableStateOf<String?>(null)
+
     val connectedPeers = mutableStateListOf<String>()
     val recentActivity = mutableStateListOf<ActivityRecord>()
 
@@ -58,6 +65,7 @@ object OpenClipboardAppState {
 
             refreshTrustedPeers(context)
 
+            syncRunning.value = true
             n.startSync(listeningPort.value.toUShort(), "Android ${android.os.Build.MODEL}".trim(), object : EventHandler {
                 override fun onClipboardText(peerId: String, text: String, tsMs: ULong) {
                     addActivity("Received clipboard text", peerId)
@@ -85,6 +93,7 @@ object OpenClipboardAppState {
                 }
 
                 override fun onError(message: String) {
+                    lastError.value = message
                     addActivity("Error: $message", "")
                 }
             })
@@ -126,6 +135,9 @@ object OpenClipboardAppState {
         }
         clipboardListener = null
         clipboardManager = null
+
+        syncRunning.value = false
+        lastError.value = null
 
         // Rust-side stop() stops listener + discovery.
         node?.stop()
