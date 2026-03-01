@@ -6,6 +6,14 @@ import android.content.Context
 import android.inputmethodservice.InputMethodService
 import android.text.format.DateFormat
 import android.view.View
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.setViewTreeLifecycleOwner
+import androidx.savedstate.SavedStateRegistry
+import androidx.savedstate.SavedStateRegistryController
+import androidx.savedstate.SavedStateRegistryOwner
+import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -46,12 +54,27 @@ import com.openclipboard.core.CoreHolder
 import uniffi.openclipboard.ClipboardHistoryEntry
 import java.util.Date
 
-class OpenClipboardImeService : InputMethodService() {
+class OpenClipboardImeService : InputMethodService(), LifecycleOwner, SavedStateRegistryOwner {
+
+    private val lifecycleRegistry = LifecycleRegistry(this)
+    private val savedStateRegistryController = SavedStateRegistryController.create(this)
+
+    override val lifecycle: Lifecycle get() = lifecycleRegistry
+    override val savedStateRegistry: SavedStateRegistry get() = savedStateRegistryController.savedStateRegistry
+
+    override fun onCreate() {
+        super.onCreate()
+        savedStateRegistryController.performRestore(null)
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
+    }
 
     override fun onCreateInputView(): View {
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
         CoreHolder.ensureStarted(applicationContext)
 
         return ComposeView(this).apply {
+            setViewTreeLifecycleOwner(this@OpenClipboardImeService)
+            setViewTreeSavedStateRegistryOwner(this@OpenClipboardImeService)
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
             setContent {
                 MaterialTheme {
@@ -77,9 +100,19 @@ class OpenClipboardImeService : InputMethodService() {
 
     override fun onStartInputView(info: android.view.inputmethod.EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
-        // Ensure history is fresh when the IME is shown.
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
         CoreHolder.ensureStarted(applicationContext)
         OpenClipboardAppState.refreshHistory(applicationContext)
+    }
+
+    override fun onFinishInputView(finishingInput: Boolean) {
+        super.onFinishInputView(finishingInput)
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
+    }
+
+    override fun onDestroy() {
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
+        super.onDestroy()
     }
 }
 
