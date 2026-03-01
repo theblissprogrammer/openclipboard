@@ -445,18 +445,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             )
             let initQr = try initPayload.toQrString()
 
-            if let wc = pairingQRWindowController {
-                wc.update(payload: initQr)
-                wc.showWindow(nil)
-                wc.window?.makeKeyAndOrderFront(nil)
-                NSApp.activate(ignoringOtherApps: true)
-            } else {
-                let wc = PairingQRWindowController(payload: initQr)
-                pairingQRWindowController = wc
-                wc.showWindow(nil)
-                wc.window?.makeKeyAndOrderFront(nil)
-                NSApp.activate(ignoringOtherApps: true)
-            }
+            // Always create a fresh window for the full pairing flow.
+            let wc = PairingQRWindowController(
+                payload: initQr,
+                identityPeerId: myPeerId,
+                identityPkB64: myPk,
+                identityName: myName,
+                lanPort: UInt16(listenerPort),
+                onPaired: { [weak self] in
+                    self?.updateMenu()
+                }
+            )
+            pairingQRWindowController = wc
+            wc.showWindow(nil)
+            wc.window?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
         } catch {
             showError("Failed to generate pairing QR: \(error)")
         }
