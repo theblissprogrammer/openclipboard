@@ -76,9 +76,10 @@ class OpenClipboardImeService : InputMethodService(), LifecycleOwner, SavedState
         }
     }
 
+    private var composeView: ComposeView? = null
+
     override fun onCreateInputView(): View {
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
-        CoreHolder.ensureStarted(applicationContext)
 
         // Also set on the window decor again (in case window was recreated).
         val decorView = window?.window?.decorView
@@ -87,10 +88,15 @@ class OpenClipboardImeService : InputMethodService(), LifecycleOwner, SavedState
             it.setViewTreeSavedStateRegistryOwner(this)
         }
 
-        return ComposeView(this).apply {
+        // Initialize core on a background thread so we don't block the IME from rendering.
+        Thread { CoreHolder.ensureStarted(applicationContext) }.start()
+
+        val view = ComposeView(this).apply {
             setViewTreeLifecycleOwner(this@OpenClipboardImeService)
             setViewTreeSavedStateRegistryOwner(this@OpenClipboardImeService)
-            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
+            // DisposeOnViewTreeLifecycleDestroyed keeps the composition alive across
+            // detach/reattach cycles (keyboard switch), avoiding the flash-then-disappear bug.
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
             setContent {
                 MaterialTheme {
                     ImeRoot(
@@ -111,12 +117,22 @@ class OpenClipboardImeService : InputMethodService(), LifecycleOwner, SavedState
                 }
             }
         }
+        composeView = view
+        return view
     }
 
     override fun onStartInputView(info: android.view.inputmethod.EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
-        CoreHolder.ensureStarted(applicationContext)
+
+        // Re-set lifecycle owners on decor view in case it was recreated.
+        val decorView = window?.window?.decorView
+        decorView?.let {
+            it.setViewTreeLifecycleOwner(this)
+            it.setViewTreeSavedStateRegistryOwner(this)
+        }
+
+        Thread { CoreHolder.ensureStarted(applicationContext) }.start()
         OpenClipboardAppState.refreshHistory(applicationContext)
     }
 
