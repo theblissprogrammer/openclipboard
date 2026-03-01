@@ -206,6 +206,19 @@ fun HomeScreen() {
             }
         }
 
+        // Manual Pair button
+        item {
+            Button(
+                onClick = {
+                    pairTarget = null
+                    showPairDialog = true
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("➕ Pair Device Manually")
+            }
+        }
+
         // Paired Devices
         item {
             Card(modifier = Modifier.fillMaxWidth()) {
