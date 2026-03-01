@@ -22,7 +22,7 @@ pub use clipboard::{ClipboardContent, ClipboardProvider, MockClipboard};
 pub use session::Session;
 pub use trust::{TrustRecord, TrustStore, MemoryTrustStore, FileTrustStore, default_trust_store_path};
 pub use replay::{ReplayProtector, MemoryReplayProtector};
-pub use pairing::{PairingPayload, derive_confirmation_code};
+pub use pairing::{PairingPayload, derive_confirmation_code, get_local_ip_addresses};
 pub use sync::{SyncService, SyncHandler, EchoSuppressor};
 pub use mesh::{PeerRegistry, PeerEntry, PeerStatus, FanoutResult, start_clipboard_watcher};
 pub use history::{ClipboardHistory, ClipboardEntry};

@@ -541,9 +541,15 @@ public protocol ClipboardNodeProtocol: AnyObject, Sendable {
     
     func connectAndSendText(addr: String, text: String) throws 
     
+    func disableQrPairingListener() throws 
+    
+    func enableQrPairingListener() throws 
+    
     func getClipboardHistory(limit: UInt32)  -> [ClipboardHistoryEntry]
     
     func getClipboardHistoryForPeer(peerName: String, limit: UInt32)  -> [ClipboardHistoryEntry]
+    
+    func pairViaQr(qrString: String) throws  -> String
     
     func peerId()  -> String
     
@@ -634,6 +640,18 @@ open func connectAndSendText(addr: String, text: String)throws   {try rustCallWi
 }
 }
     
+open func disableQrPairingListener()throws   {try rustCallWithError(FfiConverterTypeOpenClipboardError_lift) {
+    uniffi_openclipboard_ffi_fn_method_clipboardnode_disable_qr_pairing_listener(self.uniffiClonePointer(),$0
+    )
+}
+}
+    
+open func enableQrPairingListener()throws   {try rustCallWithError(FfiConverterTypeOpenClipboardError_lift) {
+    uniffi_openclipboard_ffi_fn_method_clipboardnode_enable_qr_pairing_listener(self.uniffiClonePointer(),$0
+    )
+}
+}
+    
 open func getClipboardHistory(limit: UInt32) -> [ClipboardHistoryEntry]  {
     return try!  FfiConverterSequenceTypeClipboardHistoryEntry.lift(try! rustCall() {
     uniffi_openclipboard_ffi_fn_method_clipboardnode_get_clipboard_history(self.uniffiClonePointer(),
@@ -647,6 +665,14 @@ open func getClipboardHistoryForPeer(peerName: String, limit: UInt32) -> [Clipbo
     uniffi_openclipboard_ffi_fn_method_clipboardnode_get_clipboard_history_for_peer(self.uniffiClonePointer(),
         FfiConverterString.lower(peerName),
         FfiConverterUInt32.lower(limit),$0
+    )
+})
+}
+    
+open func pairViaQr(qrString: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeOpenClipboardError_lift) {
+    uniffi_openclipboard_ffi_fn_method_clipboardnode_pair_via_qr(self.uniffiClonePointer(),
+        FfiConverterString.lower(qrString),$0
     )
 })
 }
@@ -938,6 +964,8 @@ public protocol PairingPayloadProtocol: AnyObject, Sendable {
     
     func identityPk()  -> [UInt8]
     
+    func lanAddrs()  -> [String]
+    
     func lanPort()  -> UInt16
     
     func name()  -> String
@@ -1006,6 +1034,13 @@ open class PairingPayload: PairingPayloadProtocol, @unchecked Sendable {
 open func identityPk() -> [UInt8]  {
     return try!  FfiConverterSequenceUInt8.lift(try! rustCall() {
     uniffi_openclipboard_ffi_fn_method_pairingpayload_identity_pk(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+open func lanAddrs() -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_openclipboard_ffi_fn_method_pairingpayload_lan_addrs(self.uniffiClonePointer(),$0
     )
 })
 }
@@ -2168,6 +2203,31 @@ fileprivate struct FfiConverterSequenceUInt8: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
+    typealias SwiftType = [String]
+
+    public static func write(_ value: [String], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterString.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [String] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [String]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterString.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeClipboardHistoryEntry: FfiConverterRustBuffer {
     typealias SwiftType = [ClipboardHistoryEntry]
 
@@ -2237,6 +2297,12 @@ public func deriveConfirmationCode(nonce: [UInt8], peerAId: String, peerBId: Str
     )
 })
 }
+public func getLanAddresses() -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_openclipboard_ffi_fn_func_get_lan_addresses($0
+    )
+})
+}
 public func identityGenerate() -> Identity  {
     return try!  FfiConverterTypeIdentity_lift(try! rustCall() {
     uniffi_openclipboard_ffi_fn_func_identity_generate($0
@@ -2250,7 +2316,7 @@ public func identityLoad(path: String)throws  -> Identity  {
     )
 })
 }
-public func pairingPayloadCreate(version: UInt8, peerId: String, name: String, identityPk: [UInt8], lanPort: UInt16, nonce: [UInt8]) -> PairingPayload  {
+public func pairingPayloadCreate(version: UInt8, peerId: String, name: String, identityPk: [UInt8], lanPort: UInt16, nonce: [UInt8], lanAddrs: [String]) -> PairingPayload  {
     return try!  FfiConverterTypePairingPayload_lift(try! rustCall() {
     uniffi_openclipboard_ffi_fn_func_pairing_payload_create(
         FfiConverterUInt8.lower(version),
@@ -2258,7 +2324,8 @@ public func pairingPayloadCreate(version: UInt8, peerId: String, name: String, i
         FfiConverterString.lower(name),
         FfiConverterSequenceUInt8.lower(identityPk),
         FfiConverterUInt16.lower(lanPort),
-        FfiConverterSequenceUInt8.lower(nonce),$0
+        FfiConverterSequenceUInt8.lower(nonce),
+        FfiConverterSequenceString.lower(lanAddrs),$0
     )
 })
 }
@@ -2307,13 +2374,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_openclipboard_ffi_checksum_func_derive_confirmation_code() != 57345) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_openclipboard_ffi_checksum_func_get_lan_addresses() != 45419) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_openclipboard_ffi_checksum_func_identity_generate() != 23125) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_openclipboard_ffi_checksum_func_identity_load() != 25055) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_openclipboard_ffi_checksum_func_pairing_payload_create() != 8324) {
+    if (uniffi_openclipboard_ffi_checksum_func_pairing_payload_create() != 2763) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_openclipboard_ffi_checksum_func_pairing_payload_from_qr_string() != 47962) {
@@ -2331,10 +2401,19 @@ private let initializationResult: InitializationResult = {
     if (uniffi_openclipboard_ffi_checksum_method_clipboardnode_connect_and_send_text() != 48151) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_openclipboard_ffi_checksum_method_clipboardnode_disable_qr_pairing_listener() != 2416) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_openclipboard_ffi_checksum_method_clipboardnode_enable_qr_pairing_listener() != 5068) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_openclipboard_ffi_checksum_method_clipboardnode_get_clipboard_history() != 16113) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_openclipboard_ffi_checksum_method_clipboardnode_get_clipboard_history_for_peer() != 25297) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_openclipboard_ffi_checksum_method_clipboardnode_pair_via_qr() != 39585) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_openclipboard_ffi_checksum_method_clipboardnode_peer_id() != 3503) {
@@ -2380,6 +2459,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_openclipboard_ffi_checksum_method_pairingpayload_identity_pk() != 27340) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_openclipboard_ffi_checksum_method_pairingpayload_lan_addrs() != 29153) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_openclipboard_ffi_checksum_method_pairingpayload_lan_port() != 37867) {

@@ -38,6 +38,7 @@ fn pairing_payload_qr_roundtrip() {
             .unwrap(),
         18455,
         vec![7u8; 32],
+        vec!["192.168.1.10".to_string()],
     );
 
     let s = payload.to_qr_string().unwrap();

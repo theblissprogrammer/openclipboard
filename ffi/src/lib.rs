@@ -23,6 +23,7 @@ use openclipboard_core::{
     BoxDiscovery,
     MdnsDiscovery,
     DiscoveryEvent,
+    get_local_ip_addresses,
 };
 
 // NOTE: This crate uses the UDL-based UniFFI flow.
@@ -190,6 +191,10 @@ impl PairingPayload {
         self.inner.nonce.clone()
     }
 
+    pub fn lan_addrs(&self) -> Vec<String> {
+        self.inner.lan_addrs.clone()
+    }
+
     pub fn to_qr_string(&self) -> Result<String> {
         Ok(self.inner.to_qr_string())
     }
@@ -202,6 +207,7 @@ pub fn pairing_payload_create(
     identity_pk: Vec<u8>,
     lan_port: u16,
     nonce: Vec<u8>,
+    lan_addrs: Vec<String>,
 ) -> Arc<PairingPayload> {
     Arc::new(PairingPayload {
         inner: openclipboard_core::PairingPayload {
@@ -211,8 +217,14 @@ pub fn pairing_payload_create(
             identity_pk,
             lan_port,
             nonce,
+            lan_addrs,
         },
     })
+}
+
+/// Get the local LAN IP addresses (non-loopback IPv4).
+pub fn get_lan_addresses() -> Vec<String> {
+    get_local_ip_addresses()
 }
 
 pub fn pairing_payload_from_qr_string(s: String) -> Result<Arc<PairingPayload>> {
@@ -850,6 +862,82 @@ impl ClipboardNode {
             .map_err(|_| OpenClipboardError::Other)?;
 
         Ok(entry.into())
+    }
+
+    /// Pair with a remote device by processing its QR string.
+    /// Parses the QR payload, adds the remote peer to the local trust store,
+    /// and initiates a connection.
+    pub fn pair_via_qr(&self, qr_string: String) -> Result<String> {
+        let payload = openclipboard_core::PairingPayload::from_qr_string(&qr_string)?;
+
+        // Add the remote peer to our trust store
+        let pk_b64 = base64::engine::general_purpose::STANDARD.encode(&payload.identity_pk);
+        let record = openclipboard_core::TrustRecord {
+            peer_id: payload.peer_id.clone(),
+            identity_pk: payload.identity_pk.clone(),
+            display_name: payload.name.clone(),
+            created_at: chrono::Utc::now(),
+        };
+        self.trust_store.save(record)?;
+
+        // If sync service is running, tell it to expect this peer to auto-trust back,
+        // reload the registry, and dial them.
+        let service = self.sync_service.lock().unwrap().clone();
+        if let Some(service) = service {
+            // Mark ourselves as expecting this peer (for auto-trust on their side)
+            // Not needed here — WE are the scanner, so the QR displayer needs to auto-trust us.
+            // The QR displayer's sync service has pending_pair set.
+            // We just need to connect to them.
+
+            // Try all advertised addresses
+            let addrs: Vec<String> = payload.lan_addrs.iter()
+                .map(|ip| format!("{}:{}", ip, payload.lan_port))
+                .collect();
+
+            // If no lan_addrs, can't connect directly
+            if addrs.is_empty() {
+                return Ok(payload.peer_id);
+            }
+
+            let peer_id = payload.peer_id.clone();
+            self.runtime.block_on(async {
+                // Reload trust store into peer registry
+                let _ = service.peer_registry().load_from_trust(self.trust_store.as_ref()).await;
+
+                for addr in &addrs {
+                    match service.dial_peer_for_pair(addr).await {
+                        Ok(()) => return,
+                        Err(e) => {
+                            eprintln!("pair dial to {} failed: {e}", addr);
+                        }
+                    }
+                }
+                eprintln!("pair_via_qr: could not connect to any address for {}", peer_id);
+            });
+        }
+
+        Ok(payload.peer_id)
+    }
+
+    /// Enable auto-trust mode: any peer that connects and completes the handshake
+    /// while we're showing our QR code will be auto-trusted.
+    pub fn enable_qr_pairing_listener(&self) -> Result<()> {
+        let service = self.sync_service.lock().unwrap().clone();
+        if let Some(service) = service {
+            // Use a wildcard: any unknown peer that connects will be auto-trusted.
+            // We'll add a special "*" sentinel to pending pairs.
+            service.add_pending_pair("*");
+        }
+        Ok(())
+    }
+
+    /// Disable auto-trust mode.
+    pub fn disable_qr_pairing_listener(&self) -> Result<()> {
+        let service = self.sync_service.lock().unwrap().clone();
+        if let Some(service) = service {
+            service.pending_pair_peers().lock().unwrap().remove("*");
+        }
+        Ok(())
     }
 
     pub fn stop(&self) {

@@ -37,6 +37,7 @@ object Pairing {
         myIdentityPkB64: String,
         myLanPort: Int,
         nonce: ByteArray = randomNonce32(),
+        lanAddrs: List<String> = emptyList(),
     ): InitResult {
         val payload = pairingPayloadCreate(
             version = 1.toUByte(),
@@ -45,6 +46,7 @@ object Pairing {
             identityPk = pkBytesFromB64(myIdentityPkB64).map { it.toUByte() },
             lanPort = myLanPort.toUShort(),
             nonce = nonce.map { it.toUByte() },
+            lanAddrs = lanAddrs,
         )
         val qr = payload.toQrString()
         return InitResult(initQr = qr, nonce = nonce)
@@ -75,6 +77,7 @@ object Pairing {
             identityPk = pkBytesFromB64(myIdentityPkB64).map { it.toUByte() },
             lanPort = myLanPort.toUShort(),
             nonce = init.nonce(),
+            lanAddrs = uniffi.openclipboard.getLanAddresses(),
         )
         val respQr = resp.toQrString()
         val code = deriveConfirmationCode(

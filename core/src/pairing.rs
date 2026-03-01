@@ -13,6 +13,21 @@ pub struct PairingPayload {
     pub identity_pk: Vec<u8>,
     pub lan_port: u16,
     pub nonce: Vec<u8>,
+    /// LAN IP addresses of the device (non-loopback IPv4). Added in v2 QR flow.
+    #[serde(default)]
+    pub lan_addrs: Vec<String>,
+}
+
+/// Get all non-loopback IPv4 addresses on this machine.
+pub fn get_local_ip_addresses() -> Vec<String> {
+    match local_ip_address::list_afinet_netifas() {
+        Ok(ifaces) => ifaces
+            .into_iter()
+            .filter(|(_name, addr)| addr.is_ipv4() && !addr.is_loopback())
+            .map(|(_name, addr)| addr.to_string())
+            .collect(),
+        Err(_) => Vec::new(),
+    }
 }
 
 impl PairingPayload {
@@ -57,6 +72,7 @@ mod tests {
             identity_pk: vec![1, 2, 3, 4],
             lan_port: 18455,
             nonce: vec![9; 32],
+            lan_addrs: vec!["192.168.1.10".into()],
         };
 
         let s = payload.to_qr_string();

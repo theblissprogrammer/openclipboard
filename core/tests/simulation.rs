@@ -28,6 +28,7 @@ async fn full_pairing_and_trusted_handshake_flow() {
         identity_pk: alice.public_key_bytes(),
         lan_port: 18455,
         nonce: nonce.clone(),
+        lan_addrs: vec![],
     };
 
     let bob_payload = PairingPayload {
@@ -36,8 +37,8 @@ async fn full_pairing_and_trusted_handshake_flow() {
         name: "Bob".into(),
         identity_pk: bob.public_key_bytes(),
         lan_port: 18456,
-        // responder can echo nonce or use empty; code derivation uses initiator nonce.
         nonce: vec![],
+        lan_addrs: vec![],
     };
 
     let alice_code = derive_confirmation_code(&alice_payload.nonce, &alice_payload.peer_id, &bob_payload.peer_id);

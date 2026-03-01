@@ -300,6 +300,41 @@ object OpenClipboardAppState {
     fun identityPath(context: Context): String = File(context.filesDir, "identity.json").absolutePath
 
     /**
+     * Pair with a remote device by processing its QR/pairing string.
+     * Adds the remote peer to trust store and initiates a connection.
+     */
+    fun pairViaQr(context: Context, qrString: String): String {
+        val n = node ?: throw IllegalStateException("Node not initialized")
+        val peerId = n.pairViaQr(qrString)
+        refreshTrustedPeers(context)
+        addActivity("Paired with $peerId", peerId)
+        return peerId
+    }
+
+    /**
+     * Enable auto-trust mode: incoming peers that complete handshake are auto-trusted.
+     * Used when showing our QR code for another device to scan.
+     */
+    fun enablePairingListener() {
+        try {
+            node?.enableQrPairingListener()
+        } catch (_: Exception) {
+            // best effort
+        }
+    }
+
+    /**
+     * Disable auto-trust mode.
+     */
+    fun disablePairingListener() {
+        try {
+            node?.disableQrPairingListener()
+        } catch (_: Exception) {
+            // best effort
+        }
+    }
+
+    /**
      * Ensure an identity exists on disk and return it.
      *
      * This avoids UI flows (like PairDialog) failing when the app was just installed

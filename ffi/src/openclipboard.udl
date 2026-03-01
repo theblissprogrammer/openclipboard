@@ -8,8 +8,11 @@ namespace openclipboard {
     string name,
     sequence<u8> identity_pk,
     u16 lan_port,
-    sequence<u8> nonce
+    sequence<u8> nonce,
+    sequence<string> lan_addrs
   );
+
+  sequence<string> get_lan_addresses();
 
   [Throws=OpenClipboardError] PairingPayload pairing_payload_from_qr_string(string s);
 
@@ -45,6 +48,7 @@ interface PairingPayload {
   sequence<u8> identity_pk();
   u16 lan_port();
   sequence<u8> nonce();
+  sequence<string> lan_addrs();
 
   [Throws=OpenClipboardError] string to_qr_string();
 };
@@ -107,6 +111,11 @@ interface ClipboardNode {
   void stop_discovery();
 
   void stop();
+
+  // QR pairing (1-step flow)
+  [Throws=OpenClipboardError] string pair_via_qr(string qr_string);
+  [Throws=OpenClipboardError] void enable_qr_pairing_listener();
+  [Throws=OpenClipboardError] void disable_qr_pairing_listener();
 
   // Clipboard history
   sequence<ClipboardHistoryEntry> get_clipboard_history(u32 limit);

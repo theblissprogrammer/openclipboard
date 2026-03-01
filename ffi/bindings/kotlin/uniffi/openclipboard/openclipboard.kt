@@ -375,7 +375,7 @@ private fun findLibraryName(componentName: String): String {
     if (libOverride != null) {
         return libOverride
     }
-    return "openclipboard_ffi"
+    return "uniffi_openclipboard"
 }
 
 private inline fun <reified Lib : Library> loadIndirect(
@@ -901,6 +901,16 @@ internal open class UniffiVTableCallbackInterfaceEventHandler(
 
 
 
+
+
+
+
+
+
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -922,6 +932,8 @@ fun uniffi_openclipboard_ffi_checksum_func_default_identity_path(
 ): Short
 fun uniffi_openclipboard_ffi_checksum_func_derive_confirmation_code(
 ): Short
+fun uniffi_openclipboard_ffi_checksum_func_get_lan_addresses(
+): Short
 fun uniffi_openclipboard_ffi_checksum_func_identity_generate(
 ): Short
 fun uniffi_openclipboard_ffi_checksum_func_identity_load(
@@ -938,9 +950,15 @@ fun uniffi_openclipboard_ffi_checksum_method_clipboardnode_connect_and_send_file
 ): Short
 fun uniffi_openclipboard_ffi_checksum_method_clipboardnode_connect_and_send_text(
 ): Short
+fun uniffi_openclipboard_ffi_checksum_method_clipboardnode_disable_qr_pairing_listener(
+): Short
+fun uniffi_openclipboard_ffi_checksum_method_clipboardnode_enable_qr_pairing_listener(
+): Short
 fun uniffi_openclipboard_ffi_checksum_method_clipboardnode_get_clipboard_history(
 ): Short
 fun uniffi_openclipboard_ffi_checksum_method_clipboardnode_get_clipboard_history_for_peer(
+): Short
+fun uniffi_openclipboard_ffi_checksum_method_clipboardnode_pair_via_qr(
 ): Short
 fun uniffi_openclipboard_ffi_checksum_method_clipboardnode_peer_id(
 ): Short
@@ -971,6 +989,8 @@ fun uniffi_openclipboard_ffi_checksum_method_identity_pubkey_b64(
 fun uniffi_openclipboard_ffi_checksum_method_identity_save(
 ): Short
 fun uniffi_openclipboard_ffi_checksum_method_pairingpayload_identity_pk(
+): Short
+fun uniffi_openclipboard_ffi_checksum_method_pairingpayload_lan_addrs(
 ): Short
 fun uniffi_openclipboard_ffi_checksum_method_pairingpayload_lan_port(
 ): Short
@@ -1070,9 +1090,15 @@ fun uniffi_openclipboard_ffi_fn_method_clipboardnode_connect_and_send_file(`ptr`
 ): Unit
 fun uniffi_openclipboard_ffi_fn_method_clipboardnode_connect_and_send_text(`ptr`: Pointer,`addr`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+fun uniffi_openclipboard_ffi_fn_method_clipboardnode_disable_qr_pairing_listener(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_openclipboard_ffi_fn_method_clipboardnode_enable_qr_pairing_listener(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
 fun uniffi_openclipboard_ffi_fn_method_clipboardnode_get_clipboard_history(`ptr`: Pointer,`limit`: Int,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_openclipboard_ffi_fn_method_clipboardnode_get_clipboard_history_for_peer(`ptr`: Pointer,`peerName`: RustBuffer.ByValue,`limit`: Int,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_openclipboard_ffi_fn_method_clipboardnode_pair_via_qr(`ptr`: Pointer,`qrString`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_openclipboard_ffi_fn_method_clipboardnode_peer_id(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1112,6 +1138,8 @@ fun uniffi_openclipboard_ffi_fn_free_pairingpayload(`ptr`: Pointer,uniffi_out_er
 ): Unit
 fun uniffi_openclipboard_ffi_fn_method_pairingpayload_identity_pk(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_openclipboard_ffi_fn_method_pairingpayload_lan_addrs(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_openclipboard_ffi_fn_method_pairingpayload_lan_port(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Short
 fun uniffi_openclipboard_ffi_fn_method_pairingpayload_name(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
@@ -1148,11 +1176,13 @@ fun uniffi_openclipboard_ffi_fn_func_default_identity_path(uniffi_out_err: Uniff
 ): RustBuffer.ByValue
 fun uniffi_openclipboard_ffi_fn_func_derive_confirmation_code(`nonce`: RustBuffer.ByValue,`peerAId`: RustBuffer.ByValue,`peerBId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_openclipboard_ffi_fn_func_get_lan_addresses(uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_openclipboard_ffi_fn_func_identity_generate(uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
 fun uniffi_openclipboard_ffi_fn_func_identity_load(`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
-fun uniffi_openclipboard_ffi_fn_func_pairing_payload_create(`version`: Byte,`peerId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`identityPk`: RustBuffer.ByValue,`lanPort`: Short,`nonce`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_openclipboard_ffi_fn_func_pairing_payload_create(`version`: Byte,`peerId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`identityPk`: RustBuffer.ByValue,`lanPort`: Short,`nonce`: RustBuffer.ByValue,`lanAddrs`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
 fun uniffi_openclipboard_ffi_fn_func_pairing_payload_from_qr_string(`s`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
@@ -1295,13 +1325,16 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_openclipboard_ffi_checksum_func_derive_confirmation_code() != 57345.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_openclipboard_ffi_checksum_func_get_lan_addresses() != 45419.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_openclipboard_ffi_checksum_func_identity_generate() != 23125.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_openclipboard_ffi_checksum_func_identity_load() != 25055.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_openclipboard_ffi_checksum_func_pairing_payload_create() != 8324.toShort()) {
+    if (lib.uniffi_openclipboard_ffi_checksum_func_pairing_payload_create() != 2763.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_openclipboard_ffi_checksum_func_pairing_payload_from_qr_string() != 47962.toShort()) {
@@ -1319,10 +1352,19 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_openclipboard_ffi_checksum_method_clipboardnode_connect_and_send_text() != 48151.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_openclipboard_ffi_checksum_method_clipboardnode_disable_qr_pairing_listener() != 2416.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_openclipboard_ffi_checksum_method_clipboardnode_enable_qr_pairing_listener() != 5068.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_openclipboard_ffi_checksum_method_clipboardnode_get_clipboard_history() != 16113.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_openclipboard_ffi_checksum_method_clipboardnode_get_clipboard_history_for_peer() != 25297.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_openclipboard_ffi_checksum_method_clipboardnode_pair_via_qr() != 39585.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_openclipboard_ffi_checksum_method_clipboardnode_peer_id() != 3503.toShort()) {
@@ -1368,6 +1410,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_openclipboard_ffi_checksum_method_pairingpayload_identity_pk() != 27340.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_openclipboard_ffi_checksum_method_pairingpayload_lan_addrs() != 29153.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_openclipboard_ffi_checksum_method_pairingpayload_lan_port() != 37867.toShort()) {
@@ -1878,9 +1923,15 @@ public interface ClipboardNodeInterface {
     
     fun `connectAndSendText`(`addr`: kotlin.String, `text`: kotlin.String)
     
+    fun `disableQrPairingListener`()
+    
+    fun `enableQrPairingListener`()
+    
     fun `getClipboardHistory`(`limit`: kotlin.UInt): List<ClipboardHistoryEntry>
     
     fun `getClipboardHistoryForPeer`(`peerName`: kotlin.String, `limit`: kotlin.UInt): List<ClipboardHistoryEntry>
+    
+    fun `pairViaQr`(`qrString`: kotlin.String): kotlin.String
     
     fun `peerId`(): kotlin.String
     
@@ -2011,6 +2062,30 @@ open class ClipboardNode: Disposable, AutoCloseable, ClipboardNodeInterface
     
     
 
+    
+    @Throws(OpenClipboardException::class)override fun `disableQrPairingListener`()
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(OpenClipboardException) { _status ->
+    UniffiLib.INSTANCE.uniffi_openclipboard_ffi_fn_method_clipboardnode_disable_qr_pairing_listener(
+        it, _status)
+}
+    }
+    
+    
+
+    
+    @Throws(OpenClipboardException::class)override fun `enableQrPairingListener`()
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(OpenClipboardException) { _status ->
+    UniffiLib.INSTANCE.uniffi_openclipboard_ffi_fn_method_clipboardnode_enable_qr_pairing_listener(
+        it, _status)
+}
+    }
+    
+    
+
     override fun `getClipboardHistory`(`limit`: kotlin.UInt): List<ClipboardHistoryEntry> {
             return FfiConverterSequenceTypeClipboardHistoryEntry.lift(
     callWithPointer {
@@ -2029,6 +2104,19 @@ open class ClipboardNode: Disposable, AutoCloseable, ClipboardNodeInterface
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_openclipboard_ffi_fn_method_clipboardnode_get_clipboard_history_for_peer(
         it, FfiConverterString.lower(`peerName`),FfiConverterUInt.lower(`limit`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    @Throws(OpenClipboardException::class)override fun `pairViaQr`(`qrString`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    callWithPointer {
+    uniffiRustCallWithError(OpenClipboardException) { _status ->
+    UniffiLib.INSTANCE.uniffi_openclipboard_ffi_fn_method_clipboardnode_pair_via_qr(
+        it, FfiConverterString.lower(`qrString`),_status)
 }
     }
     )
@@ -2570,6 +2658,8 @@ public interface PairingPayloadInterface {
     
     fun `identityPk`(): List<kotlin.UByte>
     
+    fun `lanAddrs`(): List<kotlin.String>
+    
     fun `lanPort`(): kotlin.UShort
     
     fun `name`(): kotlin.String
@@ -2672,6 +2762,18 @@ open class PairingPayload: Disposable, AutoCloseable, PairingPayloadInterface
     callWithPointer {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_openclipboard_ffi_fn_method_pairingpayload_identity_pk(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    override fun `lanAddrs`(): List<kotlin.String> {
+            return FfiConverterSequenceString.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_openclipboard_ffi_fn_method_pairingpayload_lan_addrs(
         it, _status)
 }
     }
@@ -3575,6 +3677,34 @@ public object FfiConverterSequenceUByte: FfiConverterRustBuffer<List<kotlin.UByt
 /**
  * @suppress
  */
+public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.String>> {
+    override fun read(buf: ByteBuffer): List<kotlin.String> {
+        val len = buf.getInt()
+        return List<kotlin.String>(len) {
+            FfiConverterString.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<kotlin.String>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterString.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<kotlin.String>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterString.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeClipboardHistoryEntry: FfiConverterRustBuffer<List<ClipboardHistoryEntry>> {
     override fun read(buf: ByteBuffer): List<ClipboardHistoryEntry> {
         val len = buf.getInt()
@@ -3651,6 +3781,15 @@ public object FfiConverterSequenceTypeTrustRecord: FfiConverterRustBuffer<List<T
     )
     }
     
+ fun `getLanAddresses`(): List<kotlin.String> {
+            return FfiConverterSequenceString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_openclipboard_ffi_fn_func_get_lan_addresses(
+        _status)
+}
+    )
+    }
+    
  fun `identityGenerate`(): Identity {
             return FfiConverterTypeIdentity.lift(
     uniffiRustCall() { _status ->
@@ -3670,11 +3809,11 @@ public object FfiConverterSequenceTypeTrustRecord: FfiConverterRustBuffer<List<T
     )
     }
     
- fun `pairingPayloadCreate`(`version`: kotlin.UByte, `peerId`: kotlin.String, `name`: kotlin.String, `identityPk`: List<kotlin.UByte>, `lanPort`: kotlin.UShort, `nonce`: List<kotlin.UByte>): PairingPayload {
+ fun `pairingPayloadCreate`(`version`: kotlin.UByte, `peerId`: kotlin.String, `name`: kotlin.String, `identityPk`: List<kotlin.UByte>, `lanPort`: kotlin.UShort, `nonce`: List<kotlin.UByte>, `lanAddrs`: List<kotlin.String>): PairingPayload {
             return FfiConverterTypePairingPayload.lift(
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_openclipboard_ffi_fn_func_pairing_payload_create(
-        FfiConverterUByte.lower(`version`),FfiConverterString.lower(`peerId`),FfiConverterString.lower(`name`),FfiConverterSequenceUByte.lower(`identityPk`),FfiConverterUShort.lower(`lanPort`),FfiConverterSequenceUByte.lower(`nonce`),_status)
+        FfiConverterUByte.lower(`version`),FfiConverterString.lower(`peerId`),FfiConverterString.lower(`name`),FfiConverterSequenceUByte.lower(`identityPk`),FfiConverterUShort.lower(`lanPort`),FfiConverterSequenceUByte.lower(`nonce`),FfiConverterSequenceString.lower(`lanAddrs`),_status)
 }
     )
     }

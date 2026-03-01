@@ -433,6 +433,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let myPeerId = myId.peerId()
         let myPk = myId.pubkeyB64()
         let myName = Host.current().localizedName ?? "macOS"
+        let lanAddrs = getLanAddresses()
 
         do {
             let initPayload = pairingPayloadCreate(
@@ -441,11 +442,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 name: myName,
                 identityPk: Data(base64Encoded: myPk)!.map { $0 },
                 lanPort: UInt16(listenerPort),
-                nonce: randomNonce32()
+                nonce: randomNonce32(),
+                lanAddrs: lanAddrs
             )
             let initQr = try initPayload.toQrString()
 
-            // Always create a fresh window for the full pairing flow.
+            // Enable auto-trust on the running node so that when the scanning device
+            // connects, we automatically trust them back.
+            try? node?.enableQrPairingListener()
+
             let wc = PairingQRWindowController(
                 payload: initQr,
                 identityPeerId: myPeerId,
@@ -453,6 +458,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 identityName: myName,
                 lanPort: UInt16(listenerPort),
                 onPaired: { [weak self] in
+                    try? self?.node?.disableQrPairingListener()
                     self?.updateMenu()
                 }
             )
@@ -495,7 +501,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     name: myName,
                     identityPk: Data(base64Encoded: myPk)!.map { $0 },
                     lanPort: UInt16(listenerPort),
-                    nonce: randomNonce32()
+                    nonce: randomNonce32(),
+                    lanAddrs: getLanAddresses()
                 )
                 let initQr = try initPayload.toQrString()
 
@@ -550,7 +557,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     name: myName,
                     identityPk: Data(base64Encoded: myPk)!.map { $0 },
                     lanPort: UInt16(listenerPort),
-                    nonce: initPayload.nonce()
+                    nonce: initPayload.nonce(),
+                    lanAddrs: getLanAddresses()
                 )
                 let respQr = try respPayload.toQrString()
 

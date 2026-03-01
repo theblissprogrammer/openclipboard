@@ -22,7 +22,7 @@ final class PairingQRWindowController: NSWindowController {
         let window = NSWindow(contentViewController: hosting)
         window.title = "Pair Device"
         window.styleMask = [.titled, .closable, .miniaturizable]
-        window.setContentSize(NSSize(width: 460, height: 600))
+        window.setContentSize(NSSize(width: 460, height: 520))
         window.isReleasedWhenClosed = false
         window.center()
 
@@ -31,7 +31,7 @@ final class PairingQRWindowController: NSWindowController {
         self.onPaired = onPaired
     }
 
-    // Legacy convenience for backward compat (shows init-only if needed)
+    // Legacy convenience for backward compat
     convenience init(payload: String) {
         self.init(payload: payload, identityPeerId: "", identityPkB64: "", identityName: "", lanPort: 0, onPaired: {})
     }
@@ -41,15 +41,7 @@ final class PairingQRWindowController: NSWindowController {
     }
 }
 
-// MARK: - Full Pairing Flow View
-
-enum PairingQRStep {
-    case showInit
-    case waitResponse
-    case showCode(code: String, remotePeerId: String, remoteName: String, remotePkB64: String)
-    case done(peerId: String)
-    case error(String)
-}
+// MARK: - Simplified 1-Step QR Pairing View
 
 struct PairingQRFlowView: View {
     let initQr: String
@@ -59,35 +51,40 @@ struct PairingQRFlowView: View {
     let lanPort: UInt16
     let onPaired: () -> Void
 
-    @State private var step: PairingQRStep = .showInit
-    @State private var responseInput: String = ""
+    @State private var status: String = "Scan this QR on the other device to pair"
     @State private var copied: Bool = false
+    @State private var paired: Bool = false
+    @State private var showManualInput: Bool = false
+    @State private var manualInput: String = ""
+    @State private var error: String? = nil
 
     var body: some View {
         VStack(spacing: 16) {
-            switch step {
-            case .showInit:
-                initStepView
-            case .waitResponse:
-                responseStepView
-            case .showCode(let code, let remotePeerId, let remoteName, let remotePkB64):
-                confirmStepView(code: code, remotePeerId: remotePeerId, remoteName: remoteName, remotePkB64: remotePkB64)
-            case .done(let peerId):
-                doneView(peerId: peerId)
-            case .error(let msg):
-                errorView(msg: msg)
+            if paired {
+                doneView
+            } else {
+                qrView
             }
         }
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            enablePairingListener()
+        }
+        .onDisappear {
+            disablePairingListener()
+        }
     }
 
-    // MARK: Step 1 — Show Init QR
+    // MARK: - QR Display
 
-    private var initStepView: some View {
+    private var qrView: some View {
         VStack(spacing: 12) {
-            Text("Step 1: Scan this QR on the other device")
+            Text("Pair Device")
                 .font(.headline)
+
+            Text(status)
+                .foregroundStyle(.secondary)
 
             if let img = qrImage(for: initQr) {
                 Image(nsImage: img)
@@ -97,7 +94,7 @@ struct PairingQRFlowView: View {
             }
 
             HStack {
-                Button(copied ? "Copied!" : "Copy Init String") {
+                Button(copied ? "Copied!" : "Copy Pairing String") {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(initQr, forType: .string)
                     copied = true
@@ -106,90 +103,43 @@ struct PairingQRFlowView: View {
                 Spacer()
             }
 
+            if let error = error {
+                Text(error)
+                    .foregroundColor(.red)
+                    .font(.caption)
+            }
+
             Divider()
 
-            Button("Next → Enter Response") {
-                step = .waitResponse
-            }
-            .buttonStyle(.borderedProminent)
-        }
-    }
-
-    // MARK: Step 2 — Paste Response
-
-    private var responseStepView: some View {
-        VStack(spacing: 12) {
-            Text("Step 2: Paste the response string from the other device")
-                .font(.headline)
-
-            TextEditor(text: $responseInput)
-                .font(.system(size: 11, design: .monospaced))
-                .frame(height: 100)
-                .border(Color.gray.opacity(0.3))
-
-            HStack {
-                Button("← Back") {
-                    step = .showInit
+            // Manual input fallback
+            DisclosureGroup("Pair Manually", isExpanded: $showManualInput) {
+                VStack(spacing: 8) {
+                    Text("Paste a pairing string from the other device:")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    TextEditor(text: $manualInput)
+                        .font(.system(size: 11, design: .monospaced))
+                        .frame(height: 60)
+                        .border(Color.gray.opacity(0.3))
+                    Button("Pair") {
+                        pairManually()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(manualInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
-
-                Spacer()
-
-                Button("Derive Code") {
-                    deriveCode()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(responseInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-        }
-    }
-
-    // MARK: Step 3 — Confirm Code
-
-    private func confirmStepView(code: String, remotePeerId: String, remoteName: String, remotePkB64: String) -> some View {
-        VStack(spacing: 16) {
-            Text("Step 3: Verify confirmation code")
-                .font(.headline)
-
-            Text(code)
-                .font(.system(size: 36, weight: .bold, design: .monospaced))
-                .padding()
-                .background(Color.green.opacity(0.1))
-                .cornerRadius(8)
-
-            Text("Confirm this code matches on the other device")
-                .foregroundStyle(.secondary)
-
-            Text("Pairing with: \(remoteName) (\(remotePeerId.prefix(8))…)")
-                .font(.subheadline)
-
-            HStack {
-                Button("Cancel") {
-                    step = .showInit
-                    responseInput = ""
-                }
-
-                Spacer()
-
-                Button("Confirm & Pair") {
-                    confirmPairing(remotePeerId: remotePeerId, remoteName: remoteName, remotePkB64: remotePkB64)
-                }
-                .buttonStyle(.borderedProminent)
             }
         }
     }
 
     // MARK: Done
 
-    private func doneView(peerId: String) -> some View {
+    private var doneView: some View {
         VStack(spacing: 16) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 48))
                 .foregroundColor(.green)
             Text("Paired successfully!")
                 .font(.headline)
-            Text("Peer: \(peerId)")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
 
             Button("Close") {
                 NSApp.keyWindow?.close()
@@ -197,47 +147,46 @@ struct PairingQRFlowView: View {
         }
     }
 
-    // MARK: Error
-
-    private func errorView(msg: String) -> some View {
-        VStack(spacing: 12) {
-            Text("Error")
-                .font(.headline)
-                .foregroundColor(.red)
-            Text(msg)
-                .foregroundStyle(.secondary)
-
-            Button("← Back") {
-                step = .waitResponse
-            }
-        }
-    }
-
     // MARK: Logic
 
-    private func deriveCode() {
+    private func enablePairingListener() {
         do {
-            let normalized = PairingHelpers.normalizeQrString(responseInput.trimmingCharacters(in: .whitespacesAndNewlines))
-            let fin = try PairingHelpers.finalizePairing(initQr: initQr, respQr: normalized)
-            step = .showCode(
-                code: fin.code,
-                remotePeerId: fin.remotePeerId,
-                remoteName: fin.remoteName,
-                remotePkB64: fin.remotePkB64
+            let node = try clipboardNodeNew(
+                identityPath: defaultIdentityPath(),
+                trustPath: trustStoreDefaultPath()
             )
+            try node.enableQrPairingListener()
         } catch {
-            step = .error("Failed to derive code: \(error.localizedDescription)")
+            // Best effort — the main node will handle it
         }
     }
 
-    private func confirmPairing(remotePeerId: String, remoteName: String, remotePkB64: String) {
+    private func disablePairingListener() {
         do {
-            let store = try trustStoreOpen(path: trustStoreDefaultPath())
-            try store.add(peerId: remotePeerId, identityPkB64: remotePkB64, displayName: remoteName)
-            step = .done(peerId: remotePeerId)
+            let node = try clipboardNodeNew(
+                identityPath: defaultIdentityPath(),
+                trustPath: trustStoreDefaultPath()
+            )
+            try node.disableQrPairingListener()
+        } catch {
+            // Best effort
+        }
+    }
+
+    private func pairManually() {
+        let input = manualInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !input.isEmpty else { return }
+
+        do {
+            let node = try clipboardNodeNew(
+                identityPath: defaultIdentityPath(),
+                trustPath: trustStoreDefaultPath()
+            )
+            let peerId = try node.pairViaQr(qrString: input)
+            paired = true
             onPaired()
         } catch {
-            step = .error("Failed to save trust: \(error.localizedDescription)")
+            self.error = "Pairing failed: \(error.localizedDescription)"
         }
     }
 

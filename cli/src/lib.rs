@@ -77,6 +77,7 @@ pub fn pairing_init_qr(name: String, port: u16, id: &Ed25519Identity, nonce: [u8
         identity_pk: id.public_key_bytes(),
         lan_port: port,
         nonce: nonce.to_vec(),
+        lan_addrs: openclipboard_core::get_local_ip_addresses(),
     };
     payload.to_qr_string()
 }
@@ -96,6 +97,7 @@ pub fn pairing_respond_qr(
         identity_pk: id.public_key_bytes(),
         lan_port: port,
         nonce: init.nonce.clone(),
+        lan_addrs: openclipboard_core::get_local_ip_addresses(),
     };
     let resp_qr = resp.to_qr_string();
     let code = derive_confirmation_code(&init.nonce, &init.peer_id, &resp.peer_id);

@@ -801,9 +801,7 @@ fun NearbyPeerItem(
     }
 }
 
-// MARK: - Pair Dialog
-
-private enum class PairRole { Initiator, Responder }
+// MARK: - Pair Dialog (Simplified 1-step QR flow)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -813,254 +811,135 @@ fun PairDialog(
     onDismiss: () -> Unit,
     onPaired: () -> Unit,
 ) {
-    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
-
-    var role by remember { mutableStateOf<PairRole?>(null) }
-
     var showScanDialog by remember { mutableStateOf(false) }
-    var showInitQrDialog by remember { mutableStateOf(false) }
-
-    var initQr by remember { mutableStateOf<String?>(null) }
-    var respQrInput by remember { mutableStateOf("") }
-    var initCode by remember { mutableStateOf<String?>(null) }
-    var initRemote by remember { mutableStateOf<Pairing.FinalizeResult?>(null) }
-
-    var initQrInput by remember { mutableStateOf("") }
-    var respQr by remember { mutableStateOf<String?>(null) }
-    var respCode by remember { mutableStateOf<String?>(null) }
-    var respRemoteInit by remember { mutableStateOf<uniffi.openclipboard.PairingPayload?>(null) }
-
+    var showMyQrDialog by remember { mutableStateOf(false) }
+    var manualInput by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
+    var paired by remember { mutableStateOf(false) }
+    var pairedPeerId by remember { mutableStateOf<String?>(null) }
 
-    fun myIdentityInfo(): Pair<String, String> {
-        val id = OpenClipboardAppState.getOrCreateIdentity(context)
-        return id.peerId() to id.pubkeyB64()
+    // Generate our own QR string for showing
+    val myQrString = remember {
+        try {
+            val id = OpenClipboardAppState.getOrCreateIdentity(context)
+            val init = Pairing.createInitPayload(
+                myPeerId = id.peerId(),
+                myName = "Android ${android.os.Build.MODEL}".trim(),
+                myIdentityPkB64 = id.pubkeyB64(),
+                myLanPort = OpenClipboardAppState.listeningPort.value,
+                lanAddrs = uniffi.openclipboard.getLanAddresses(),
+            )
+            // Enable pairing listener so the other device gets auto-trusted
+            OpenClipboardAppState.enablePairingListener()
+            init.initQr
+        } catch (e: Exception) {
+            null
+        }
     }
 
-    fun ubytesToBytes(xs: List<UByte>): ByteArray = ByteArray(xs.size) { i -> xs[i].toByte() }
-
-    fun addTrust(peerId: String, name: String, identityPkB64: String) {
-        val store = uniffi.openclipboard.trustStoreOpen(OpenClipboardAppState.trustStorePath(context))
-        store.add(peerId, identityPkB64, name.ifBlank { peerId })
-        OpenClipboardAppState.addActivity("Paired with $peerId", peerId)
-    }
-
-    fun generateResponderPayload() {
+    fun pairWithQrString(qrString: String) {
         error = null
         try {
-            val (myPeerId, myPk) = myIdentityInfo()
-            val res = Pairing.respondToInit(
-                initQr = initQrInput,
-                myPeerId = myPeerId,
-                myName = "Android ${android.os.Build.MODEL}".trim(),
-                myIdentityPkB64 = myPk,
-                myLanPort = OpenClipboardAppState.listeningPort.value,
-            )
-            respQr = res.respQr
-            respCode = res.confirmationCode
-            respRemoteInit = res.init
+            val peerId = OpenClipboardAppState.pairViaQr(context, qrString)
+            paired = true
+            pairedPeerId = peerId
+            onPaired()
         } catch (e: Exception) {
-            error = e.message
+            error = e.message ?: "Pairing failed"
         }
     }
 
     AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Pair Device") },
+        onDismissRequest = {
+            OpenClipboardAppState.disablePairingListener()
+            onDismiss()
+        },
+        title = { Text(if (paired) "Paired!" else "Pair Device") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (defaultPeerName != null) {
-                    Text("Nearby: $defaultPeerName")
-                }
-
-                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-
-                if (role == null) {
-                    Text("Choose a role for this pairing.")
-                }
-
-                if (role == PairRole.Initiator) {
-                    if (initQr == null) {
-                        Text("Step 1: Generate init string and send it to the other device.")
-                    } else {
-                        Text("Step 1: Copy init string to share")
-                        OutlinedTextField(
-                            value = initQr ?: "",
-                            onValueChange = {},
-                            readOnly = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            label = { Text("Init QR string") }
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            TextButton(onClick = {
-                                clipboard.setText(androidx.compose.ui.text.AnnotatedString(initQr ?: ""))
-                            }) { Text("Copy") }
-
-                            TextButton(
-                                onClick = { showInitQrDialog = true },
-                                enabled = !initQr.isNullOrBlank(),
-                            ) { Text("Show QR") }
-                        }
-
-                        Spacer(Modifier.height(8.dp))
-                        Text("Step 2: Paste response string from the other device")
-                        OutlinedTextField(
-                            value = respQrInput,
-                            onValueChange = { respQrInput = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            label = { Text("Response QR string") },
-                        )
-
-                        initCode?.let { code ->
-                            Text("Confirmation code: $code", fontWeight = FontWeight.Medium)
-                            Text("Confirm the code matches on the other device, then tap Confirm.")
-                        }
+                if (paired) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("✅ ", style = MaterialTheme.typography.headlineMedium)
+                        Text("Paired with ${pairedPeerId?.take(12) ?: "device"}…")
                     }
-                }
-
-                if (role == PairRole.Responder) {
-                    if (respQr == null) {
-                        Text("Step 1: Paste init string from the other device")
-                        OutlinedTextField(
-                            value = initQrInput,
-                            onValueChange = { initQrInput = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            label = { Text("Init QR string") },
-                        )
-
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            TextButton(onClick = { showScanDialog = true }) {
-                                Text("Scan QR")
-                            }
-                        }
-                    } else {
-                        Text("Step 2: Send this response string back")
-                        OutlinedTextField(
-                            value = respQr ?: "",
-                            onValueChange = {},
-                            readOnly = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            label = { Text("Response QR string") }
-                        )
-                        TextButton(onClick = {
-                            clipboard.setText(androidx.compose.ui.text.AnnotatedString(respQr ?: ""))
-                        }) { Text("Copy") }
-
-                        respCode?.let { code ->
-                            Text("Confirmation code: $code", fontWeight = FontWeight.Medium)
-                            Text("Confirm the code matches on the initiator, then tap Confirm.")
-                        }
+                } else {
+                    if (defaultPeerName != null) {
+                        Text("Nearby: $defaultPeerName")
                     }
+
+                    error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+
+                    // Primary: Scan QR from other device
+                    Button(
+                        onClick = { showScanDialog = true },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("📷 Scan QR Code")
+                    }
+
+                    // Show our QR for the other device to scan
+                    OutlinedButton(
+                        onClick = { showMyQrDialog = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = myQrString != null
+                    ) {
+                        Text("📱 Show My QR Code")
+                    }
+
+                    HorizontalDivider()
+
+                    // Manual input fallback
+                    Text("Or paste a pairing string:", style = MaterialTheme.typography.labelMedium)
+                    OutlinedTextField(
+                        value = manualInput,
+                        onValueChange = { manualInput = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Pairing string") },
+                        singleLine = false,
+                        maxLines = 3,
+                    )
                 }
             }
         },
         confirmButton = {
-            when (role) {
-                null -> {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(onClick = {
-                            role = PairRole.Initiator
-                            error = null
-                            try {
-                                val (myPeerId, myPk) = myIdentityInfo()
-                                val init = Pairing.createInitPayload(
-                                    myPeerId = myPeerId,
-                                    myName = "Android ${android.os.Build.MODEL}".trim(),
-                                    myIdentityPkB64 = myPk,
-                                    myLanPort = OpenClipboardAppState.listeningPort.value,
-                                )
-                                initQr = init.initQr
-                            } catch (e: Exception) {
-                                error = e.message
-                            }
-                        }) { Text("Initiate") }
-
-                        TextButton(onClick = {
-                            role = PairRole.Responder
-                            error = null
-                        }) { Text("Respond") }
-                    }
-                }
-
-                PairRole.Initiator -> {
-                    if (initCode == null) {
-                        TextButton(onClick = {
-                            error = null
-                            try {
-                                val fin = Pairing.finalize(initQr ?: "", respQrInput.trim())
-                                initRemote = fin
-                                initCode = fin.confirmationCode
-                            } catch (e: Exception) {
-                                error = e.message
-                            }
-                        }) { Text("Derive Code") }
-                    } else {
-                        TextButton(onClick = {
-                            error = null
-                            try {
-                                val fin = initRemote ?: return@TextButton
-                                val resp = fin.resp
-                                val remotePeerId = resp.peerId()
-                                val remoteName = resp.name()
-                                val remotePkB64 = Pairing.pkB64FromBytes(ubytesToBytes(resp.identityPk()))
-                                addTrust(remotePeerId, remoteName, remotePkB64)
-                                onPaired()
-                            } catch (e: Exception) {
-                                error = e.message
-                            }
-                        }) { Text("Confirm") }
-                    }
-                }
-
-                PairRole.Responder -> {
-                    if (respQr == null) {
-                        TextButton(onClick = { generateResponderPayload() }) { Text("Generate") }
-                    } else {
-                        TextButton(onClick = {
-                            error = null
-                            try {
-                                val init = respRemoteInit ?: return@TextButton
-                                val remotePeerId = init.peerId()
-                                val remoteName = init.name()
-                                val remotePkB64 = Pairing.pkB64FromBytes(ubytesToBytes(init.identityPk()))
-                                addTrust(remotePeerId, remoteName, remotePkB64)
-                                onPaired()
-                            } catch (e: Exception) {
-                                error = e.message
-                            }
-                        }) { Text("Confirm") }
-                    }
+            if (paired) {
+                TextButton(onClick = {
+                    OpenClipboardAppState.disablePairingListener()
+                    onDismiss()
+                }) { Text("Done") }
+            } else if (manualInput.isNotBlank()) {
+                TextButton(onClick = { pairWithQrString(manualInput.trim()) }) {
+                    Text("Pair")
                 }
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Close") }
+            if (!paired) {
+                TextButton(onClick = {
+                    OpenClipboardAppState.disablePairingListener()
+                    onDismiss()
+                }) { Text("Cancel") }
+            }
         }
     )
 
     if (showScanDialog) {
         QrScanDialog(
-            title = "Scan init QR",
+            title = "Scan pairing QR",
             onResult = { raw ->
-                initQrInput = raw
                 showScanDialog = false
-                generateResponderPayload()
+                pairWithQrString(raw)
             },
             onDismiss = { showScanDialog = false },
         )
     }
 
-    if (showInitQrDialog) {
-        val data = initQr
-        if (data != null) {
-            QrShowDialog(
-                title = "Init QR",
-                data = data,
-                onDismiss = { showInitQrDialog = false },
-            )
-        } else {
-            showInitQrDialog = false
-        }
+    if (showMyQrDialog && myQrString != null) {
+        QrShowDialog(
+            title = "My Pairing QR",
+            data = myQrString,
+            onDismiss = { showMyQrDialog = false },
+        )
     }
 }
 

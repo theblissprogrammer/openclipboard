@@ -111,6 +111,10 @@ pub struct SyncService<D: Discovery + 'static> {
     /// When true, the next clipboard write is a "silent recall" and should not trigger fanout.
     silent_write: Arc<std::sync::atomic::AtomicBool>,
 
+    /// Peers we're expecting to connect back (after QR scan pair).
+    /// When a peer in this set connects, auto-trust them.
+    pending_pair_peers: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+
     stop_tx: watch::Sender<bool>,
     tasks: Mutex<Vec<JoinHandle<()>>>,
 }
@@ -139,6 +143,7 @@ impl<D: Discovery + 'static> SyncService<D> {
             echo_suppressor: Arc::new(Mutex::new(EchoSuppressor::new(32))),
             history: Arc::new(ClipboardHistory::new(100)),
             silent_write: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            pending_pair_peers: Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
             stop_tx,
             tasks: Mutex::new(Vec::new()),
         })
@@ -169,6 +174,7 @@ impl<D: Discovery + 'static> SyncService<D> {
         let echo_sup = Arc::clone(&self.echo_suppressor);
         let registry = self.peer_registry.clone();
         let history = Arc::clone(&self.history);
+        let pending_pairs = Arc::clone(&self.pending_pair_peers);
 
         // Incoming accept loop
         let incoming_task = tokio::spawn(async move {
@@ -192,8 +198,9 @@ impl<D: Discovery + 'static> SyncService<D> {
                         let echo2 = Arc::clone(&echo_sup);
                         let registry2 = registry.clone();
                         let history2 = Arc::clone(&history);
+                        let pending2 = Arc::clone(&pending_pairs);
                         tokio::spawn(async move {
-                            if let Err(e) = handle_incoming_connection(conn, identity2, trust2, replay2, peers2, handler2, echo2, registry2, history2).await {
+                            if let Err(e) = handle_incoming_connection(conn, identity2, trust2, replay2, peers2, handler2, echo2, registry2, history2, pending2).await {
                                 // already reported most errors
                                 let _ = e;
                             }
@@ -329,6 +336,66 @@ impl<D: Discovery + 'static> SyncService<D> {
         &self.silent_write
     }
 
+    /// Get a reference to the pending pair peers set.
+    pub fn pending_pair_peers(&self) -> &Arc<std::sync::Mutex<std::collections::HashSet<String>>> {
+        &self.pending_pair_peers
+    }
+
+    /// Add a peer to the pending pair set (auto-trust when they connect).
+    pub fn add_pending_pair(&self, peer_id: &str) {
+        self.pending_pair_peers.lock().unwrap().insert(peer_id.to_string());
+    }
+
+    /// Dial a specific address to initiate a pairing connection.
+    /// Used after QR scan: we already trust them, now connect.
+    pub async fn dial_peer_for_pair(&self, addr: &str) -> Result<()> {
+        let endpoint = make_insecure_client_endpoint()?;
+        let transport = QuicTransport::new(endpoint);
+
+        let conn = transport.connect(addr).await
+            .with_context(|| format!("dial {addr} for pairing"))?;
+
+        let session = Session::with_trust_and_replay(
+            conn,
+            self.identity.clone(),
+            crate::clipboard::MockClipboard::new(),
+            self.trust_store.clone(),
+            self.replay.clone(),
+        );
+
+        let peer_id = session.handshake().await
+            .with_context(|| format!("handshake with {addr} for pairing"))?;
+
+        // Set up the peer message loop
+        let (tx, rx) = mpsc::channel::<String>(32);
+        {
+            let mut map = self.peers.lock().await;
+            if map.contains_key(&peer_id) {
+                return Ok(());
+            }
+            map.insert(peer_id.clone(), PeerHandle { outbound_tx: tx });
+        }
+
+        self.peer_registry.set_online(&peer_id, Some(addr.to_string())).await;
+        self.handler.on_peer_connected(peer_id.clone());
+
+        let peers = Arc::clone(&self.peers);
+        let handler = Arc::clone(&self.handler);
+        let echo_sup = Arc::clone(&self.echo_suppressor);
+        let registry = self.peer_registry.clone();
+        let history = Arc::clone(&self.history);
+        let peer_id2 = peer_id.clone();
+        let task = tokio::spawn(async move {
+            let _ = peer_message_loop(session, peer_id2.clone(), rx, handler.clone(), echo_sup, history).await;
+            peers.lock().await.remove(&peer_id2);
+            registry.set_offline(&peer_id2).await;
+            handler.on_peer_disconnected(peer_id2);
+        });
+
+        self.tasks.lock().await.push(task);
+        Ok(())
+    }
+
     /// Start mesh mode: run a clipboard watcher in the background and auto-broadcast changes.
     ///
     /// This calls `start()` first (listener + discovery + outbound connections), then adds
@@ -398,22 +465,68 @@ async fn handle_incoming_connection(
     echo_suppressor: Arc<Mutex<EchoSuppressor>>,
     registry: PeerRegistry,
     history: Arc<ClipboardHistory>,
+    pending_pair_peers: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
 ) -> Result<()> {
-    let session = Session::with_trust_and_replay(
-        conn,
-        identity.clone(),
-        crate::clipboard::MockClipboard::new(),
-        trust_store.clone(),
-        replay.clone(),
-    );
+    // Check if we have pending pair peers — if so, use pairing mode
+    let has_pending = !pending_pair_peers.lock().unwrap().is_empty();
 
-    let peer_id = match session.handshake().await {
-        Ok(p) => p,
+    let session = if has_pending {
+        Session::with_pairing_mode_and_replay(
+            conn,
+            identity.clone(),
+            crate::clipboard::MockClipboard::new(),
+            trust_store.clone(),
+            replay.clone(),
+        )
+    } else {
+        Session::with_trust_and_replay(
+            conn,
+            identity.clone(),
+            crate::clipboard::MockClipboard::new(),
+            trust_store.clone(),
+            replay.clone(),
+        )
+    };
+
+    let hs = match session.handshake_full().await {
+        Ok(r) => r,
         Err(e) => {
             handler.on_error(format!("incoming handshake failed: {e}"));
             return Ok(());
         }
     };
+    let peer_id = hs.peer_id;
+
+    // If pairing mode was used, check if peer is pending or trusted
+    if has_pending {
+        let is_trusted = trust_store.is_trusted(&peer_id)?;
+        let was_pending = {
+            let mut set = pending_pair_peers.lock().unwrap();
+            // Check for specific peer_id or wildcard "*"
+            set.remove(&peer_id) || set.contains("*")
+        };
+
+        if !is_trusted && !was_pending {
+            // Unknown peer, not pending — reject
+            handler.on_error(format!("rejecting untrusted peer {}", peer_id));
+            session.conn.close();
+            return Ok(());
+        }
+
+        if was_pending && !is_trusted {
+            // Auto-trust this peer back — they scanned our QR and connected
+            use crate::trust::TrustRecord as CoreTrustRecord;
+            let record = CoreTrustRecord {
+                peer_id: peer_id.clone(),
+                identity_pk: hs.identity_pk,
+                display_name: peer_id.clone(), // We don't know their name yet
+                created_at: chrono::Utc::now(),
+            };
+            trust_store.save(record)?;
+            // Also add to peer registry
+            registry.load_from_trust(trust_store.as_ref()).await?;
+        }
+    }
 
     // dedupe: if we're the dialer, prefer outbound
     let local_id = identity.peer_id().to_string();

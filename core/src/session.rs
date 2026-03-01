@@ -13,6 +13,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+/// Result of a successful handshake.
+#[derive(Debug, Clone)]
+pub struct HandshakeResult {
+    pub peer_id: String,
+    pub identity_pk: Vec<u8>,
+}
+
 pub struct Session<C: Connection, I: IdentityProvider, CB: ClipboardProvider> {
     pub conn: Arc<C>,
     pub identity: Arc<I>,
@@ -131,8 +138,18 @@ impl<C: Connection, I: IdentityProvider, CB: ClipboardProvider> Session<C, I, CB
         self.handshake_with_timeout(Duration::from_secs(5)).await
     }
 
+    /// Handshake returning full info including the remote public key.
+    pub async fn handshake_full(&self) -> Result<HandshakeResult> {
+        self.handshake_full_with_timeout(Duration::from_secs(5)).await
+    }
+
     /// Handshake with an explicit timeout so we never hang forever.
     pub async fn handshake_with_timeout(&self, timeout_dur: Duration) -> Result<String> {
+        self.handshake_full_with_timeout(timeout_dur).await.map(|r| r.peer_id)
+    }
+
+    /// Handshake with timeout, returning full result.
+    pub async fn handshake_full_with_timeout(&self, timeout_dur: Duration) -> Result<HandshakeResult> {
         // Send our HELLO
         self.send_hello().await?;
 
@@ -200,7 +217,7 @@ impl<C: Connection, I: IdentityProvider, CB: ClipboardProvider> Session<C, I, CB
                     }
                 }
 
-                Ok(peer_id)
+                Ok(HandshakeResult { peer_id, identity_pk })
             }
             _ => {
                 self.conn.close();
