@@ -66,11 +66,26 @@ class OpenClipboardImeService : InputMethodService(), LifecycleOwner, SavedState
         super.onCreate()
         savedStateRegistryController.performRestore(null)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
+
+        // Set lifecycle owners on the IME window's decor view so Compose can find them
+        // when walking up the view tree from our ComposeView.
+        val decorView = window?.window?.decorView
+        decorView?.let {
+            it.setViewTreeLifecycleOwner(this)
+            it.setViewTreeSavedStateRegistryOwner(this)
+        }
     }
 
     override fun onCreateInputView(): View {
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
         CoreHolder.ensureStarted(applicationContext)
+
+        // Also set on the window decor again (in case window was recreated).
+        val decorView = window?.window?.decorView
+        decorView?.let {
+            it.setViewTreeLifecycleOwner(this)
+            it.setViewTreeSavedStateRegistryOwner(this)
+        }
 
         return ComposeView(this).apply {
             setViewTreeLifecycleOwner(this@OpenClipboardImeService)
