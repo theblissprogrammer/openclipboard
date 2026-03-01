@@ -2,6 +2,7 @@ import AppKit
 import CoreImage
 import CoreImage.CIFilterBuiltins
 import SwiftUI
+import OpenClipboardBindings
 
 @MainActor
 final class PairingQRWindowController: NSWindowController {
