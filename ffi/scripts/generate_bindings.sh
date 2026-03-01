@@ -17,7 +17,7 @@ if [[ "$PROFILE" == "release" ]]; then
   CARGO_FLAGS+=(--release)
 fi
 
-cargo build -p openclipboard_ffi "${CARGO_FLAGS[@]}"
+cargo build -p openclipboard_ffi ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"}
 
 # Locate the built shared library (platform-specific). If not found, continue without it.
 LIB=""
