@@ -28,8 +28,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
@@ -37,7 +36,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -47,7 +45,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.openclipboard.OpenClipboardAppState
 import com.openclipboard.core.CoreHolder
@@ -77,6 +74,8 @@ class OpenClipboardImeService : InputMethodService(), LifecycleOwner, SavedState
     }
 
     private var composeView: ComposeView? = null
+
+    override fun onEvaluateFullscreenMode(): Boolean = false
 
     override fun onCreateInputView(): View {
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
@@ -163,31 +162,15 @@ private fun ImeRoot(
 
     Column(
         modifier = Modifier
-            .fillMaxSize()
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+            .fillMaxWidth()
+            .height(280.dp)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Column {
-                Text("OpenClipboard", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text(
-                    "History keyboard",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            Text("📋 Clipboard History", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             TextButton(onClick = onRefresh) { Text("Refresh") }
         }
-
-        OutlinedTextField(
-            modifier = Modifier.fillMaxWidth(),
-            value = vm.query,
-            onValueChange = vm::updateQuery,
-            singleLine = true,
-            label = { Text("Search") },
-            keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Done),
-            keyboardActions = KeyboardActions(onDone = { /* let IME stay */ })
-        )
 
         PeerChips(
             peers = vm.peerOptions(history),
@@ -253,8 +236,8 @@ private fun HistoryList(
     }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         items(items, key = { it.id }) { item ->
             HistoryRow(item = item, onPaste = onPaste, onLongPress = onLongPress)
